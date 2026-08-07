@@ -1,0 +1,6 @@
+# D3 cost model (version cn-etf-cost-2026-v1)
+# v0.1: proportional commission + slippage, no min_fee (方案 A)
+version: cn-etf-cost-2026-v1
+fee_rate: 0.0003 # 单边佣金比例
+stamp_duty: 0.0 # ETF 免印花税
+slippage: 0.001 # 单边滑点比例

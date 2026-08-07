@@ -1,0 +1,10 @@
+# D4 instrument metadata (初始值；listed_date 待 M2 用真实数据核实并修正)
+symbol: "511010"
+exchange: SSE
+asset_type: ETF
+underlying_type: BOND
+currency: CNY
+lot_size: 100
+tick_size: 0.001
+same_day_sell: true # 债券 ETF：T+0
+listed_date: "2013-03-05"

@@ -1,2 +1,17 @@
 docs/review/
 docs/proposal/
+
+# data volumes (bulk research evidence, not tracked in git)
+data/raw/
+data/snapshots/
+data/processed/
+data/paper/
+!data/metadata/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# derived registry index (rebuilt via `pql registry rebuild`)
+experiment_registry.parquet

@@ -1,0 +1,24 @@
+# D9 validation gates (version gates-2026-v1)
+# Promotion Policy，不是统计学真理；策略进入 RESEARCH 时 gate_version 冻结。
+version: gates-2026-v1
+candidate: # RESEARCH -> CANDIDATE（全部不需要 holdout 的证伪项，禁读 holdout）
+    min_is_sharpe: 0.5
+    max_drawdown_floor: -0.35
+    walkforward_min_segment_sharpe_frac: 0.5 # >=50% 的 test 段 sharpe>0
+    param_stability_min_frac: 0.5 # 网格中 sharpe >= 0.5*best 的点占比
+    time_windows_min_pos_cagr_frac: 0.5
+    cost_2x_min_sharpe: 0.0
+    exec_stress_max_drawdown_floor: -0.45 # T+2 与 open 价变体
+    bootstrap_sharpe_p05_min: -0.3
+    deflated_sharpe_min: 0.95
+    max_kill_families_killed: 2 # 按 Kill Test Family 判定（M6）
+    require_code_clean: true # CANDIDATE/VALIDATED 必须 code_dirty==false
+final: # `pql validate final`（Candidate Freeze 后最后一道验证，只消费 holdout）
+    holdout_min_sharpe: 0.0
+validated: {} # CANDIDATE -> VALIDATED = candidate 全 PASS 且 final(holdout) 通过；无额外统计门槛
+paper: # VALIDATED -> PAPER 准入门槛（M7）
+    min_trading_days: 40
+    min_rebalance_cycles: 3
+    min_sim_orders: 10
+    max_unreconciled: 0
+    max_silent_failures: 0

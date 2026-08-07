@@ -1,0 +1,6 @@
+# D4 market rules (version cn-etf-2026-v1)
+version: cn-etf-2026-v1
+market_name: CN_ETF
+lot_size: 100
+trading_calendar: snapshot # 指向快照内 calendar（M2 建立）
+benchmark: "510300"

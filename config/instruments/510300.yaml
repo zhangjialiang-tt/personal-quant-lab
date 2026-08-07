@@ -1,0 +1,10 @@
+# D4 instrument metadata (初始值；listed_date 待 M2 用真实数据核实并修正)
+symbol: "510300"
+exchange: SSE
+asset_type: ETF
+underlying_type: INDEX
+currency: CNY
+lot_size: 100
+tick_size: 0.001
+same_day_sell: false # 股票指数 ETF：T+1
+listed_date: "2012-05-28"
