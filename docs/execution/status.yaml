@@ -1,16 +1,14 @@
 plan_version: v0.1
 plan_sha256: "..."
 
-active_milestone: M2
+active_milestone: M1
 
 milestones:
     M1:
-        state: ACCEPTED
-        commit: abc1234
-        review: PASS
-
+        state: IMPLEMENTED
+        commit: aa5e93d
+        review: PENDING
     M2:
-        state: IN_PROGRESS
-
+        state: NOT_STARTED
     M3:
         state: NOT_STARTED
