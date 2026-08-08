@@ -9,7 +9,7 @@
   },
   "gate_version": "gates-2026-v1",
   "gate_content_sha256": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
-  "code_commit": "692fe3bbe15586e53579ec4111981bdc1da10dc6",
+  "code_commit": "8c924d3266cb1bd8dfdbc95ce43e16025c4c5b2b",
   "code_dirty": false,
   "config_hashes": {
     "strategies\\etf_trend_v1.yaml": "92d7e334a2a8adaa68ec6ec1f1ab754d3aa6e69cfa838f02390032276d033555",
@@ -28,7 +28,7 @@
   "provenance": {
     "dataset_version": "market-20260808-v1",
     "dataset_source": "synthetic",
-    "code_commit": "692fe3bbe15586e53579ec4111981bdc1da10dc6",
+    "code_commit": "8c924d3266cb1bd8dfdbc95ce43e16025c4c5b2b",
     "code_dirty": false,
     "gate_version": "gates-2026-v1",
     "config_sha256": "f02ef7f640de75a2e51f5d561cf86799d6e5d96284b1faa74d6b352675c00847"
@@ -44,7 +44,7 @@
     "sha256": null
   },
   "holdout_untouched": true,
-  "experiment_id": "EXP-0009",
+  "experiment_id": "EXP-0011",
   "is_baseline": {
     "cagr": 0.31778422990821187,
     "annual_vol": 0.1475432389332707,
@@ -772,5 +772,5 @@
   },
   "overall": "FAIL",
   "ready_for_candidate_freeze": false,
-  "created": "2026-08-08T14:45:47+08:00"
+  "created": "2026-08-08T14:48:51+08:00"
 }
