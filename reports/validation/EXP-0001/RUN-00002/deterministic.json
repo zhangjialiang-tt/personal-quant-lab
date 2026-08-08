@@ -22,7 +22,7 @@
     },
     "valid_trading_dates": {
       "status": "PASS",
-      "detail": "all 1 fills on trading calendar days"
+      "detail": "all 157 fills on trading calendar days"
     },
     "holdout_compliance": {
       "status": "PASS",
@@ -30,8 +30,8 @@
     },
     "reproducible": {
       "status": "PASS",
-      "detail": "reproducible; semantic_result_hash=39bb1d3a4ee97caf3b41efecfa2a4036171992461a0e4579ec134f56f8081a32",
-      "semantic_result_hash": "39bb1d3a4ee97caf3b41efecfa2a4036171992461a0e4579ec134f56f8081a32",
+      "detail": "reproducible; semantic_result_hash=dc62793715e89e7ed905d6ec64b8ad693610d5729494e8a4addfdcd364e327ca",
+      "semantic_result_hash": "dc62793715e89e7ed905d6ec64b8ad693610d5729494e8a4addfdcd364e327ca",
       "hash_matches_recorded": false
     }
   }
