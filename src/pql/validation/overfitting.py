@@ -176,6 +176,17 @@ def deflated_sharpe_report(
     eq = pd.Series(equity).sort_index()
     rets = eq.pct_change().dropna()
     comp = deflated_sharpe_ratio(rets, n, sr_var)
+    # FAIL-CLOSED (review #10 P2): the cross-trial Sharpe variance is only
+    # well-defined when EVERY distinct SELECT trial has a measurable Sharpe.
+    # If some trial Sharpes are NaN/unmeasurable, the variance is computed from
+    # a subset while N still counts the unmeasurable trials -> DSR is not
+    # trustworthy, so it is marked invalid (the DSR gate then fails).
+    if len(annual_sharpes) != n:
+        comp["dsr_probability"] = float("nan")
+        comp["note"] = (
+            f"FAIL-CLOSED: {len(annual_sharpes)} measurable trial Sharpes != "
+            f"effective_trial_count {n}; DSR not computable"
+        )
     comp["effective_trial_count"] = n
     comp["trial_selection_keys"] = keys
     comp["trial_sharpes"] = annual_sharpes

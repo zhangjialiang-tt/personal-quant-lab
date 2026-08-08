@@ -126,6 +126,24 @@ def test_trial_sharpe_variance_from_ledger():
     assert var_period == pytest.approx(expected, abs=1e-12)
 
 
+def test_dsr_fail_closed_on_trial_count_mismatch():
+    """If some SELECT trials have an unmeasurable (NaN) Sharpe, the cross-trial
+    variance is ill-defined: the DSR must be marked invalid (fail-closed), not
+    silently computed with N counting trials that have no Sharpe (review #10 P2)."""
+    from pql.validation.overfitting import deflated_sharpe_report
+
+    tmp = pathlib.Path(tempfile.mkdtemp())
+    _write_manifest(tmp, "EXP-0001", "s_v1")
+    _write_run(tmp, "EXP-0001", "RUN-00001", "s_v1", "SELECT", {"p": 1}, sharpe=1.0)
+    _write_run(tmp, "EXP-0001", "RUN-00002", "s_v1", "SELECT", {"p": 2}, sharpe=2.0)
+    # a SELECT config with a NaN (unmeasurable) Sharpe still counts as a trial
+    _write_run(tmp, "EXP-0001", "RUN-00003", "s_v1", "SELECT", {"p": 3}, sharpe=float("nan"))
+    eq = pd.Series(np.random.default_rng(1).normal(0.0005, 0.01, 300))
+    comp = deflated_sharpe_report(_spec(42), eq, tmp, "s_v1")
+    assert np.isnan(comp["dsr_probability"])  # fail-closed
+    assert "FAIL-CLOSED" in comp.get("note", "")
+
+
 def _write_manifest(exp_root: pathlib.Path, exp: str, strategy: str):
     d = exp_root / exp
     d.mkdir(parents=True, exist_ok=True)
@@ -182,4 +200,4 @@ def test_duplicate_select_dedup():
 def _spec(seed=42):
     from types import SimpleNamespace
 
-    return SimpleNamespace(seed=seed)
+    return SimpleNamespace(seed=seed, signal={"kind": "x"})
