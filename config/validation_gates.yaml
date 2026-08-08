@@ -22,3 +22,12 @@ paper: # VALIDATED -> PAPER 准入门槛（M7）
     min_sim_orders: 10
     max_unreconciled: 0
     max_silent_failures: 0
+
+# M7 risk policy (PLAN_CLARIFICATION M7-002: added additively; historical M6
+# gate hashes are untouched). Thresholds read by src/pql/risk/rules.py.
+risk: # M7.8 订单级风险规则阈值
+    version: risk-2026-v1
+    max_position_weight: 0.6
+    max_portfolio_exposure: 1.0
+    max_turnover_per_rebalance: 2.0
+    max_order_value: 100000 # CNY

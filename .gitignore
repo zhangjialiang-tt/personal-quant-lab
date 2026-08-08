@@ -13,5 +13,10 @@ __pycache__/
 *.pyc
 .venv/
 
+# generated reports (audit.log / review_bundles stay tracked; paper/validation
+# reports are generated evidence, not code)
+reports/paper/
+reports/validation/
+
 # derived registry index (rebuilt via `pql registry rebuild`)
 experiment_registry.parquet

@@ -90,9 +90,22 @@ def build_parser() -> argparse.ArgumentParser:
     gpromote = gsub.add_parser("promote", help="promote a strategy lifecycle state")
     gpromote.add_argument("--strategy", required=True)
     gpromote.add_argument("--to", required=True, dest="to_state",
-                          help="target state (M6 implements CANDIDATE only)")
+                          help="target state (M7 implements the full chain)")
     gpromote.add_argument("--approver", required=True, help="human approver id")
     gpromote.add_argument("--reason", required=True)
+    gdemo = gsub.add_parser("demo", help="run the full lifecycle in an isolated sandbox (M7)")
+    gdemo.add_argument("--sandbox", default=None, help="sandbox root (default: temp)")
+    gdemo.add_argument("--to-live", action="store_true",
+                       help="also demo PAPER->LIVE (human PASS / AI REJECT)")
+
+    paper = sub.add_parser("paper", help="paper trading commands (M7)")
+    psub = paper.add_subparsers(dest="command", metavar="<command>")
+    preplay = psub.add_parser("replay", help="run a paper replay on the snapshot calendar")
+    preplay.add_argument("--strategy", required=True)
+    preplay.add_argument("--start", required=True, help="YYYY-MM-DD")
+    preplay.add_argument("--end", required=True, help="YYYY-MM-DD")
+    preport = psub.add_parser("report", help="paper report + gate + benchmark chart")
+    preport.add_argument("--strategy", required=True)
 
     review = sub.add_parser("review", help="AI review bundles (M6.9)")
     rsub = review.add_subparsers(dest="command", metavar="<command>")
@@ -100,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     rbundle.add_argument("--exp", required=True, help="experiment id EXP-NNNN")
     rbundle.add_argument("--role", required=True, choices=["reviewer", "challenger"])
 
-    for name in [g for g in _GROUPS if g not in ("data", "experiment", "registry", "validate", "gate", "review")]:
+    for name in [g for g in _GROUPS if g not in ("data", "experiment", "registry", "validate", "gate", "paper", "review")]:
         sub.add_parser(name, help=f"{name} commands").add_subparsers(dest="command")
     return parser
 
@@ -430,30 +443,80 @@ def _cmd_validate_final(args) -> int:
 
 
 def _cmd_gate_promote(args) -> int:
-    from .validation.freeze import FreezeError, promote_to_candidate
+    from pql.gate import GateError, promote
 
-    if args.to_state != "CANDIDATE":
-        print(
-            f"error: --to {args.to_state} is not implemented until M7; "
-            "M6 implements only --to CANDIDATE",
-            file=sys.stderr,
-        )
-        return 1
     try:
-        result = promote_to_candidate(
-            ".", args.strategy, approver=args.approver, reason=args.reason,
-            registry_path="strategy_registry.yaml", report_root="reports",
-            experiments_root="experiments", data_root="data",
+        result = promote(
+            ".", args.strategy, args.to_state, approver=args.approver,
+            reason=args.reason, registry_path="strategy_registry.yaml",
+            report_root="reports", experiments_root="experiments", data_root="data",
         )
-    except FreezeError as exc:
+    except GateError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    print(f"{args.strategy} promoted to CANDIDATE (freeze written)")
-    print(f"  candidate_hash: {result['candidate_freeze']['candidate_hash']}")
-    print(f"  spec_sha256: {result['candidate_freeze']['spec_sha256']}")
-    print(f"  code_commit: {result['candidate_freeze']['code_commit']}")
-    print(f"  params: {result['candidate_freeze']['parameters']}")
+    state = result.get("state", args.to_state)
+    print(f"{args.strategy} promoted to {state}")
+    if "candidate_freeze" in result:
+        print(f"  candidate_hash: {result['candidate_freeze']['candidate_hash']}")
+        print(f"  spec_sha256: {result['candidate_freeze']['spec_sha256']}")
+        print(f"  code_commit: {result['candidate_freeze']['code_commit']}")
+    elif result.get("history"):
+        print(f"  history entries: {len(result['history'])}")
     return 0
+
+
+def _cmd_gate_demo(args) -> int:
+    from pql.gate_demo import gate_demo_main
+
+    return gate_demo_main()
+
+
+def _cmd_paper_replay(args) -> int:
+    from pql.execution.paper import PaperError, paper_replay
+    from pql.risk.rules import KillSwitchActive
+
+    try:
+        summary = paper_replay(
+            ".", args.strategy, args.start, args.end,
+            data_root="data", paper_root=None,
+        )
+    except KillSwitchActive:
+        print("error: KILL_SWITCH active; order generation stopped (exit 3)",
+              file=sys.stderr)
+        return 3
+    except PaperError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"paper replay: {args.strategy} [{args.start}, {args.end}]")
+    print(f"  dataset_version={summary['dataset_version']}")
+    print(f"  trading_days={summary['trading_days']}")
+    print(f"  rebalance_cycles={summary['rebalance_cycles']}")
+    print(f"  sim_orders={summary['sim_orders']}")
+    print(f"  initial_cash={summary['initial_cash']:.2f}")
+    print(f"  final_cash={summary['final_cash']:.2f}")
+    return 0
+
+
+def _cmd_paper_report(args) -> int:
+    from pql.execution.report import PaperReportError, load_paper_report
+
+    try:
+        report = load_paper_report(".", args.strategy, data_root="data",
+                                   paper_root=None, report_root="reports")
+    except PaperReportError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"paper report: {args.strategy}")
+    for k in ("trading_days", "rebalance_cycles", "sim_orders", "unreconciled", "silent_failures"):
+        g = report["paper_gate"][k]
+        print(f"  {k}={g['actual']} (threshold={g['threshold']}, "
+              f"{'PASS' if g['pass'] else 'FAIL'})")
+    print(f"  overall={report['overall']}")
+    print(f"  dataset_source={report['dataset_source']} "
+          f"market_evidence={report['market_evidence']}")
+    print(f"  chart={report.get('chart_path')}")
+    print(f"  report={report.get('report_path')}")
+    return 0 if report["overall"] == "PASS" else 1
 
 
 def _cmd_review_bundle(args) -> int:
@@ -495,6 +558,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_validate_final(args)
     if args.group == "gate" and getattr(args, "command", None) == "promote":
         return _cmd_gate_promote(args)
+    if args.group == "gate" and getattr(args, "command", None) == "demo":
+        return _cmd_gate_demo(args)
+    if args.group == "paper" and getattr(args, "command", None) == "replay":
+        return _cmd_paper_replay(args)
+    if args.group == "paper" and getattr(args, "command", None) == "report":
+        return _cmd_paper_report(args)
     if args.group == "review" and getattr(args, "command", None) == "bundle":
         return _cmd_review_bundle(args)
     parser.parse_args([args.group, "--help"])

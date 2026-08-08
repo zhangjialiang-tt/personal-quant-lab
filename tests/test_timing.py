@@ -109,3 +109,85 @@ def test_research_price_not_used_as_execution_price(tmp_path):
     # fill price must be the RAW close at idx 1 (101), not the adjusted 151.5
     assert r.orders.iloc[0]["price"] == 101.0
     assert r.orders.iloc[0]["price"] != 101.0 * 1.5
+
+# --------------------------------------------------------------------------- #
+# M7 latest_expected_completed_bar (PLAN_CLARIFICATION M7-004)
+# --------------------------------------------------------------------------- #
+from pql.timing import latest_expected_completed_bar as _lec
+
+_CAL = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09"])
+
+
+def test_trading_morning_previous_bar_completed():
+    # Tue 09:30 (before 15:00 close) -> Mon's bar is the latest completed one
+    assert _lec(_CAL, "2026-01-06 09:30") == pd.Timestamp("2026-01-05")
+
+
+def test_trading_after_close_today_bar_completed():
+    assert _lec(_CAL, "2026-01-06 15:30") == pd.Timestamp("2026-01-06")
+
+
+def test_trading_exactly_at_close_completed():
+    assert _lec(_CAL, "2026-01-06 15:00") == pd.Timestamp("2026-01-06")
+
+
+def test_weekend_most_recent_trading_bar():
+    # Saturday -> Friday's bar
+    assert _lec(_CAL, "2026-01-10 12:00") == pd.Timestamp("2026-01-09")
+
+
+def test_holiday_most_recent_trading_bar():
+    # Sunday -> Friday's bar
+    assert _lec(_CAL, "2026-01-11 12:00") == pd.Timestamp("2026-01-09")
+
+
+def test_latest_expected_not_equal_today_morning():
+    # on a trading morning the latest completed bar is NOT today
+    today = pd.Timestamp("2026-01-06")
+    assert _lec(_CAL, "2026-01-06 09:30") != today
+
+
+def test_stale_when_price_before_expected_bar():
+    from pql.risk.rules import RiskContext, RiskOrder, evaluate_batch
+    from pql.schemas import CostModel as _CM
+
+    cost = _CM(version="c", fee_rate=0.0003, stamp_duty=0.0, slippage=0.001)
+    ctx = RiskContext(
+        risk_config={"version": "r", "max_position_weight": 0.6,
+                     "max_portfolio_exposure": 1.0, "max_turnover_per_rebalance": 2.0,
+                     "max_order_value": 100000},
+        instruments={"510300.SH": {"symbol": "510300.SH", "lot_size": 100,
+                                   "listed_date": "2020-01-01"}},
+        calendar_dates=frozenset(_CAL),
+        expected_completed_bar=_lec(_CAL, "2026-01-06 15:00"),
+        execution_date="2026-01-06", cash=100000.0, equity=100000.0,
+        positions={}, valuation_price={"510300.SH": 100.0},
+        execution_price={"510300.SH": 100.0}, price_date={"510300.SH": "2026-01-05"},
+        cost=cost, lot_size={"510300.SH": 100},
+    )
+    dec = evaluate_batch([RiskOrder("o1", "2026-01-06", "510300.SH", "BUY",
+                                    100.0, 100.0, 10000.0)], ctx)
+    assert {v.rule for v in dec.violations} == {"stale_price_check"}
+
+
+def test_not_stale_when_price_on_expected_bar():
+    from pql.risk.rules import RiskContext, RiskOrder, evaluate_batch
+    from pql.schemas import CostModel as _CM
+
+    cost = _CM(version="c", fee_rate=0.0003, stamp_duty=0.0, slippage=0.001)
+    ctx = RiskContext(
+        risk_config={"version": "r", "max_position_weight": 0.6,
+                     "max_portfolio_exposure": 1.0, "max_turnover_per_rebalance": 2.0,
+                     "max_order_value": 100000},
+        instruments={"510300.SH": {"symbol": "510300.SH", "lot_size": 100,
+                                   "listed_date": "2020-01-01"}},
+        calendar_dates=frozenset(_CAL),
+        expected_completed_bar=_lec(_CAL, "2026-01-06 15:00"),
+        execution_date="2026-01-06", cash=100000.0, equity=100000.0,
+        positions={}, valuation_price={"510300.SH": 100.0},
+        execution_price={"510300.SH": 100.0}, price_date={"510300.SH": "2026-01-06"},
+        cost=cost, lot_size={"510300.SH": 100},
+    )
+    dec = evaluate_batch([RiskOrder("o1", "2026-01-06", "510300.SH", "BUY",
+                                    100.0, 100.0, 10000.0)], ctx)
+    assert "stale_price_check" not in {v.rule for v in dec.violations}
