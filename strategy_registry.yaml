@@ -21,3 +21,25 @@ strategies:
     reason: M4 research
     evidence: strategies/etf_trend_v1.yaml
     approver: zhangjl
+- id: etf_momentum_v1
+  state: RESEARCH
+  created: '2026-08-08T11:30:57+08:00'
+  history:
+  - from: null
+    to: IDEA
+    time: '2026-08-08T11:30:57+08:00'
+    reason: M5 momentum v1
+    evidence: strategies/etf_momentum_v1.yaml
+    approver: zhangjl
+  - from: IDEA
+    to: SPECIFIED
+    time: '2026-08-08T11:30:57+08:00'
+    reason: spec frozen
+    evidence: strategies/etf_momentum_v1.yaml
+    approver: zhangjl
+  - from: SPECIFIED
+    to: RESEARCH
+    time: '2026-08-08T11:30:57+08:00'
+    reason: M5 research
+    evidence: strategies/etf_momentum_v1.yaml
+    approver: zhangjl

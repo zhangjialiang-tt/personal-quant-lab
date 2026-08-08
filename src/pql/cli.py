@@ -80,6 +80,8 @@ def build_parser() -> argparse.ArgumentParser:
     vrun = vsub.add_parser("run", help="deterministic run validation")
     vrun.add_argument("--exp", required=True)
     vrun.add_argument("--run", default=None, help="run id RUN-XXXXX (required if >1 run)")
+    vcand = vsub.add_parser("candidate", help="candidate development validation (M5)")
+    vcand.add_argument("--strategy", required=True)
 
     for name in [g for g in _GROUPS if g not in ("data", "experiment", "registry", "validate")]:
         sub.add_parser(name, help=f"{name} commands").add_subparsers(dest="command")
@@ -366,6 +368,25 @@ def _cmd_validate_run(args) -> int:
     return 0 if report["overall"] == "PASS" else 1
 
 
+def _cmd_validate_candidate(args) -> int:
+    from .validation.pipeline import validate_candidate
+
+    report = validate_candidate(".", args.strategy, data_root="data")
+    print(f"candidate validation: {args.strategy}")
+    print(f"  overall: {report['overall']}")
+    print(f"  strategy_state: {report['strategy_state']}")
+    print(f"  dataset: {report['dataset_version']} (source={report['dataset_source']})")
+    print(f"  gate_version: {report['gate_version']}")
+    for k, v in report["gate_results"].items():
+        print(f"  gate {k}: {'PASS' if v else 'FAIL'}")
+    for k, v in report["m6_pending"].items():
+        print(f"  {k}: {v}")
+    print(f"  holdout_untouched: {report['holdout_untouched']}")
+    print(f"  effective_trial_count: {report['effective_trial_count']}")
+    print(f"  report: {report.get('report_path')}")
+    return 1 if report["overall"] == "FAIL" else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -386,6 +407,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_registry_list(args)
     if args.group == "validate" and getattr(args, "command", None) == "run":
         return _cmd_validate_run(args)
+    if args.group == "validate" and getattr(args, "command", None) == "candidate":
+        return _cmd_validate_candidate(args)
     parser.parse_args([args.group, "--help"])
     return 0
 

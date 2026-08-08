@@ -1,0 +1,31 @@
+# D6 strategy spec: ETF Momentum Rotation v1 (M5.1)
+# PLAN_CLARIFICATION M5-001: top_k is the research parameter (actual requested K);
+# risk.max_positions is the hard risk ceiling. effective_k = min(top_k, max_positions),
+# so the frozen grid [1,2,3] is behaviorally meaningful.
+name: etf_momentum_v1
+hypothesis: "在多资产 ETF universe 中，中期相对动量较强且绝对动量为正的资产，未来一段时间可能具有更好的风险调整收益；通过月度 Top-K 等权轮动控制换手。"
+universe: ["510300.SH", "510500.SH", "518880.SH", "511010.SH"]
+benchmark: "510300.SH"
+signal:
+    kind: momentum_rotation
+    momentum_days: 120 # 默认值；研究参数须落在 param_grid
+    ma_filter: 0 # 0=disable, 200=close_adj>MA200
+    top_k: 2
+rebalance: monthly
+risk: { max_positions: 3 } # hard ceiling; effective_k = min(top_k, max_positions)
+dataset_version: market-20260808-v1
+market_rule_version: cn-etf-2026-v1
+cost_model_version: cn-etf-cost-2026-v1
+timing: { execution_bar: 1, execution_price: close }
+windows:
+    in_sample: ["2020-01-02", "2024-12-31"]
+    holdout: ["2025-01-01", "2026-08-07"]
+param_grid:
+    momentum_days: [60, 120, 180]
+    ma_filter: [0, 200]
+    top_k: [1, 2, 3]
+research_budget:
+    max_total_selection_runs: 50 # >= 18-组合笛卡尔积
+    max_variants_per_param: { momentum_days: 3, ma_filter: 2, top_k: 3 }
+    holdout_access: { allowed: false }
+seed: 42

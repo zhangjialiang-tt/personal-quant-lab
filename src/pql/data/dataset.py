@@ -108,6 +108,11 @@ class DatasetView:
         df = self._prices_frame()[["date", "symbol", "open", "close"]]
         return self._filter(df)
 
+    def amount_frame(self) -> pd.DataFrame:
+        """Canonical amount (CNY) for liquidity analysis (M5 regimes)."""
+        df = self._prices_frame()[["date", "symbol", "amount"]]
+        return self._filter(df)
+
     def _filter(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df
         if self.universe:

@@ -10,8 +10,9 @@ import pandas as pd
 
 from pql.schemas import StrategySpec
 
-from ..backtest.api import SignalIntent
+from ..backtest.api import TradingIntent
 from .buy_hold import buy_hold_signal
+from .momentum_rotation import momentum_rotation_signal
 from .trend_ma import trend_ma_signal
 
 
@@ -28,9 +29,11 @@ def effective_params(spec: StrategySpec, overrides: dict[str, Any] | None = None
 
 
 def build_signal(spec: StrategySpec, research: pd.DataFrame,
-                 params: dict[str, Any]) -> SignalIntent:
-    """Build the SignalIntent for a spec using the given effective params and a
-    point-in-time research frame."""
+                 params: dict[str, Any]) -> TradingIntent:
+    """Build the TradingIntent for a spec using the given effective params and a
+    point-in-time research frame. SignalIntent kinds route to from_signals /
+    equal-weight orders; momentum_rotation is a TargetWeightIntent (monthly
+    Top-K rotation) routed to from_orders targetpercent."""
     kind = spec.signal.get("kind")
     if kind == "buy_hold":
         symbol = spec.signal.get("symbol", spec.universe[0])
@@ -40,6 +43,14 @@ def build_signal(spec: StrategySpec, research: pd.DataFrame,
         max_positions = spec.risk.get("max_positions")
         return trend_ma_signal(
             research, ma_period=ma_period, max_positions=max_positions
+        )
+    if kind == "momentum_rotation":
+        return momentum_rotation_signal(
+            research,
+            momentum_days=int(params.get("momentum_days")),
+            ma_filter=int(params.get("ma_filter", 0)),
+            top_k=int(params.get("top_k")),
+            max_positions=spec.risk.get("max_positions"),
         )
     raise SignalBuildError(f"unknown signal kind: {kind!r}")
 
