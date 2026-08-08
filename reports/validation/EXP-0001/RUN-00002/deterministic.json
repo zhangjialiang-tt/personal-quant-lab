@@ -1,0 +1,38 @@
+{
+  "experiment_id": "EXP-0001",
+  "run_id": "RUN-00002",
+  "strategy": "etf_trend_v1",
+  "overall": "PASS",
+  "checks": {
+    "no_same_bar_fill": {
+      "status": "PASS",
+      "detail": "execution_bar=1 >= 1; no order fills at a signal bar"
+    },
+    "no_future_data": {
+      "status": "PASS",
+      "detail": "signal point-in-time identical at 5 sampled dates"
+    },
+    "dataset_pinned": {
+      "status": "PASS",
+      "detail": "dataset_pinned=market-20260808-v1 checksums match"
+    },
+    "cost_nonzero": {
+      "status": "PASS",
+      "detail": "fee_rate=0.0003 > 0"
+    },
+    "valid_trading_dates": {
+      "status": "PASS",
+      "detail": "all 1 fills on trading calendar days"
+    },
+    "holdout_compliance": {
+      "status": "PASS",
+      "detail": "holdout_access.allowed=False, accesses recorded=0"
+    },
+    "reproducible": {
+      "status": "PASS",
+      "detail": "reproducible; semantic_result_hash=39bb1d3a4ee97caf3b41efecfa2a4036171992461a0e4579ec134f56f8081a32",
+      "semantic_result_hash": "39bb1d3a4ee97caf3b41efecfa2a4036171992461a0e4579ec134f56f8081a32",
+      "hash_matches_recorded": false
+    }
+  }
+}

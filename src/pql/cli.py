@@ -68,7 +68,8 @@ def build_parser() -> argparse.ArgumentParser:
     # --- registry -----------------------------------------------------------
     registry = sub.add_parser("registry", help="derived experiment registry (M4)")
     rsub = registry.add_subparsers(dest="command", metavar="<command>")
-    rsub.add_parser("rebuild", help="rebuild the derived parquet index from source of truth")
+    rrebuild = rsub.add_parser("rebuild", help="rebuild the derived parquet index from source of truth")
+    rrebuild.add_argument("--out", default="experiment_registry.parquet")
     rlist = rsub.add_parser("list", help="list experiments/runs")
     rlist.add_argument("--strategy", default=None)
     rlist.add_argument("--out", default="experiment_registry.parquet")

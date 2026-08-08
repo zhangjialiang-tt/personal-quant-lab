@@ -1,0 +1,8 @@
+experiment_id: EXP-0002
+strategy: etf_trend_v1
+research_question: M4 lifecycle verification (REJECTED-preservation)
+experiment_config: {}
+decision: REJECTED
+reason: M4 lifecycle verification
+decision_time: '2026-08-08T10:06:40+08:00'
+created: '2026-08-08T10:06:21+08:00'

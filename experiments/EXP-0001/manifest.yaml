@@ -1,0 +1,8 @@
+experiment_id: EXP-0001
+strategy: etf_trend_v1
+research_question: research on etf_trend_v1
+experiment_config: {}
+decision: PENDING
+reason: ''
+decision_time: null
+created: '2026-08-08T10:04:28+08:00'

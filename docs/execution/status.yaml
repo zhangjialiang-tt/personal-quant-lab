@@ -1,7 +1,7 @@
 plan_version: v0.1
 plan_sha256: "..."
 
-active_milestone: M3
+active_milestone: M4
 
 milestones:
     M1:
@@ -17,4 +17,6 @@ milestones:
         commit: 533ecfa
         review: ACCEPT
     M4:
-        state: NOT_STARTED
+        state: IMPLEMENTED
+        commit: fda9987
+        review: PENDING
