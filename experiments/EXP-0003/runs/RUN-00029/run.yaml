@@ -20,7 +20,7 @@ cost_config:
   fee_rate: 0.0003
   slippage: 0.001
 gate_version: gates-2026-v1
-code_commit: 55657a0297eaffaa09fe29d33204332c951c4fd8
+code_commit: 20bf7a7ac46f0f56c509bf63b6d933de8960e567
 code_dirty: false
 git_diff_sha256: ''
 config_sha256: 2adad2a563accee006fd0ec24fbd963a886113660e8e4fc0496566e40cee0d13
@@ -39,4 +39,4 @@ metrics:
   annual_vol: 0.10810730915055038
   mean_daily_return: 0.0010266268222832637
   status: ok
-created: '2026-08-08T11:51:49+08:00'
+created: '2026-08-08T12:14:55+08:00'

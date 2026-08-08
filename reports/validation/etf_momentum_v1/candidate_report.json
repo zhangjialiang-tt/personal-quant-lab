@@ -6,7 +6,7 @@
   "market_evidence": false,
   "gate_version": "gates-2026-v1",
   "gate_content_sha256": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
-  "code_commit": "55657a0297eaffaa09fe29d33204332c951c4fd8",
+  "code_commit": "20bf7a7ac46f0f56c509bf63b6d933de8960e567",
   "code_dirty": false,
   "config_hashes": {
     "strategies\\etf_momentum_v1.yaml": "bc0d5e2d8a9e8e7dc541e816b9cca3785c50e44cc74a70395621d123f01bb3d5",
@@ -131,7 +131,7 @@
     "years": [
       {
         "year": "2020",
-        "trading_days": 1032,
+        "trading_days": 258,
         "status": "ok",
         "metrics": {
           "cagr": 0.10068827989298201,
@@ -147,7 +147,7 @@
       },
       {
         "year": "2021",
-        "trading_days": 1028,
+        "trading_days": 257,
         "status": "ok",
         "metrics": {
           "cagr": 0.42814251170613526,
@@ -163,7 +163,7 @@
       },
       {
         "year": "2022",
-        "trading_days": 1036,
+        "trading_days": 259,
         "status": "ok",
         "metrics": {
           "cagr": 0.5519035424398158,
@@ -179,7 +179,7 @@
       },
       {
         "year": "2023",
-        "trading_days": 1024,
+        "trading_days": 256,
         "status": "ok",
         "metrics": {
           "cagr": 0.38337378994725957,
@@ -195,7 +195,7 @@
       },
       {
         "year": "2024",
-        "trading_days": 1016,
+        "trading_days": 254,
         "status": "ok",
         "metrics": {
           "cagr": 0.2737045084030998,
@@ -295,5 +295,5 @@
     "time_windows_min_pos_cagr_frac": true
   },
   "overall": "INCOMPLETE_PENDING_M6",
-  "created": "2026-08-08T11:51:49+08:00"
+  "created": "2026-08-08T12:14:56+08:00"
 }
