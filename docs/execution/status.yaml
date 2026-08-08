@@ -21,4 +21,6 @@ milestones:
         commit: 7117daf
         review: ACCEPT
     M5:
-        state: NOT_STARTED
+        state: IMPLEMENTED
+        commit: 55657a0
+        review: PENDING
