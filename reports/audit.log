@@ -1,0 +1,3 @@
+{"strategy_id": "etf_trend_v1", "from": null, "to": "IDEA", "time": "2026-08-08T10:03:56+08:00", "reason": "M4 ETF trend v1", "evidence": "strategies/etf_trend_v1.yaml", "approver": "zhangjl"}
+{"strategy_id": "etf_trend_v1", "from": "IDEA", "to": "SPECIFIED", "time": "2026-08-08T10:03:56+08:00", "reason": "spec frozen", "evidence": "strategies/etf_trend_v1.yaml", "approver": "zhangjl"}
+{"strategy_id": "etf_trend_v1", "from": "SPECIFIED", "to": "RESEARCH", "time": "2026-08-08T10:03:56+08:00", "reason": "M4 research", "evidence": "strategies/etf_trend_v1.yaml", "approver": "zhangjl"}

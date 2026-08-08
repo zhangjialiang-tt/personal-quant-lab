@@ -1,0 +1,23 @@
+# D6 strategy spec: ETF Trend-following v1 (M4.5)
+name: etf_trend_v1
+hypothesis: "中长期价格处于长期均线上方时，趋势延续/风险暴露的风险收益结构可能优于无条件持有；否则持现金。"
+universe: ["510300.SH", "510500.SH", "518880.SH", "511010.SH"]
+benchmark: "510300.SH"
+signal:
+    kind: trend_ma
+    ma_period: 200 # 默认值；研究参数经 --params 覆盖，须落在 param_grid
+rebalance: daily
+risk: { max_positions: 2 }
+dataset_version: market-20260808-v1
+market_rule_version: cn-etf-2026-v1
+cost_model_version: cn-etf-cost-2026-v1
+timing: { execution_bar: 1, execution_price: close }
+windows:
+    in_sample: ["2020-01-02", "2024-12-31"]
+    holdout: ["2025-01-01", "2026-08-07"]
+param_grid: { ma_period: [150, 180, 200, 220, 250] }
+research_budget:
+    max_total_selection_runs: 50
+    max_variants_per_param: { ma_period: 20 }
+    holdout_access: { allowed: false }
+seed: 42

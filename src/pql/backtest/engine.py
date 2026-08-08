@@ -97,6 +97,10 @@ def run_backtest_impl(
         ]
         entries = entries & has_price
         exits = exits & has_price
+        # Multi-asset SignalIntent = ONE shared portfolio account (single
+        # init_cash pool), not N independent per-symbol portfolios. group_by +
+        # cash_sharing make vectorbt treat all columns as one portfolio whose
+        # equity is a single nav series starting at init_cash (M4 contract).
         pf = vbt.Portfolio.from_signals(
             close=raw_close,
             price=order_price,
@@ -107,6 +111,8 @@ def run_backtest_impl(
             slippage=cost_model.slippage,
             freq="D",
             direction="longonly",
+            group_by=True,
+            cash_sharing=True,
         )
         intent_kind = "signal"
         valuation_mode = "signal_fill"

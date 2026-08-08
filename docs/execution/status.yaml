@@ -14,7 +14,7 @@ milestones:
         review: ACCEPT
     M3:
         state: IMPLEMENTED
-        commit: ca3ac0f
-        review: PENDING
+        commit: 533ecfa
+        review: ACCEPT
     M4:
         state: NOT_STARTED
