@@ -11,9 +11,9 @@
   },
   "gate_version": "gates-2026-v1",
   "gate_content_sha256": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
-  "code_commit": "489f7a57c66880322f518c2a06018e7bef0fa161",
+  "code_commit": "6e19d00d44f8882e4687f5c2c2c17b2182a3fad2",
   "code_dirty": false,
-  "code_tree_sha256": "b5731cd8438609cc066725f0255b62ac23168eff65a6e36b0131e87456ad5e2b",
+  "code_tree_sha256": "dd3f45c8c1297b2ed89748b97617212394378f52b2bc284e51f076ad092bcb38",
   "config_hashes": {
     "strategies\\etf_momentum_v1.yaml": "bc0d5e2d8a9e8e7dc541e816b9cca3785c50e44cc74a70395621d123f01bb3d5",
     "config\\validation_gates.yaml": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
@@ -26,7 +26,7 @@
   },
   "validation_fingerprint": {
     "spec_sha256": "bc0d5e2d8a9e8e7dc541e816b9cca3785c50e44cc74a70395621d123f01bb3d5",
-    "code_tree_sha256": "b5731cd8438609cc066725f0255b62ac23168eff65a6e36b0131e87456ad5e2b",
+    "code_tree_sha256": "dd3f45c8c1297b2ed89748b97617212394378f52b2bc284e51f076ad092bcb38",
     "parameters": {
       "momentum_days": 120,
       "ma_filter": 0,
@@ -49,7 +49,7 @@
   "provenance": {
     "dataset_version": "market-20260808-v1",
     "dataset_source": "synthetic",
-    "code_commit": "489f7a57c66880322f518c2a06018e7bef0fa161",
+    "code_commit": "6e19d00d44f8882e4687f5c2c2c17b2182a3fad2",
     "code_dirty": false,
     "gate_version": "gates-2026-v1",
     "config_sha256": "2adad2a563accee006fd0ec24fbd963a886113660e8e4fc0496566e40cee0d13"
@@ -65,7 +65,7 @@
     "sha256": null
   },
   "holdout_untouched": true,
-  "experiment_id": "EXP-0018",
+  "experiment_id": "EXP-0020",
   "is_baseline": {
     "cagr": 0.34840715773102127,
     "annual_vol": 0.15163407274078453,
@@ -844,5 +844,5 @@
   },
   "overall": "PASS",
   "ready_for_candidate_freeze": true,
-  "created": "2026-08-08T16:35:12+08:00"
+  "created": "2026-08-08T17:19:26+08:00"
 }

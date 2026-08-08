@@ -1,0 +1,8 @@
+{
+  "regime_combo": "DOWN|LOW_VOL|HIGH_LIQ",
+  "n_days": 94,
+  "sharpe": NaN,
+  "annual_vol": 0.0,
+  "mean_daily_return": 0.0,
+  "status": "ok"
+}
