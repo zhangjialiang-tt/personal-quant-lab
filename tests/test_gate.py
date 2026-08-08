@@ -368,3 +368,61 @@ def test_paper_to_live_stale_fingerprint_rejected(tmp_path):
                 registry_path=reg, report_root=root / "reports",
                 experiments_root=root / "experiments", data_root=data_root)
     assert _snapshot(reg, "demo_v1") == before  # zero mutation
+
+
+def _demo_sandbox(tmp_path) -> tuple[Path, Path, Path]:
+    from pql.gate_demo import run_gate_demo
+
+    sandbox = tmp_path / "sb"
+    res = run_gate_demo(sandbox=sandbox, print_steps=False)
+    assert res["DEMO_RESULT"] == "PASS"
+    root = Path(sandbox)
+    return root, root / "data", root / "strategy_registry.yaml"
+
+
+def test_paper_gate_rejects_tampered_meta_metrics(tmp_path):
+    """Review P1-2b: the Gate metrics are derived from the raw account artifacts,
+    so tampering meta.json's sim_orders/trading_days/rebalance_cycles cannot turn
+    a failing account into a passing one."""
+    root, data_root, _reg = _demo_sandbox(tmp_path)
+    pd_path = data_root / "paper" / "demo_v1"
+    # defeat the real account: no orders, no decisions
+    (pd_path / "orders.jsonl").unlink()
+    (pd_path / "events.jsonl").unlink()
+    # tamper meta to claim success
+    meta = json.loads((pd_path / "meta.json").read_text(encoding="utf-8"))
+    meta["sim_orders"] = 999
+    meta["trading_days"] = 65
+    meta["rebalance_cycles"] = 3
+    (pd_path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    from pql.execution.report import build_paper_gate_evidence
+
+    ev = build_paper_gate_evidence(root, "demo_v1", data_root=data_root,
+                                   paper_root=pd_path, report_root=root / "reports",
+                                   persist=False)
+    assert ev["sim_orders"] == 0  # derived from (empty) ledger, NOT meta 999
+    assert ev["rebalance_cycles"] == 0  # derived from (empty) events
+    assert ev["overall"] == "FAIL"
+
+
+def test_paper_gate_rejects_tampered_report_overall(tmp_path):
+    """Review P1-2b: the promotion gate recomputes the paper gate from the
+    account, so hand-editing paper_report.json overall=PASS cannot bypass a
+    genuinely failing account."""
+    root, data_root, reg = _demo_sandbox(tmp_path)
+    pd_path = data_root / "paper" / "demo_v1"
+    # defeat the real account -> actual FAIL
+    (pd_path / "orders.jsonl").unlink()
+    (pd_path / "events.jsonl").unlink()
+    # hand-edit the persisted report to claim PASS (account untouched)
+    report_path = root / "reports" / "paper" / "demo_v1" / "paper_report.json"
+    rep = json.loads(report_path.read_text(encoding="utf-8"))
+    rep["overall"] = "PASS"
+    report_path.write_text(json.dumps(rep), encoding="utf-8")
+    before = _snapshot(reg, "demo_v1")
+    with pytest.raises(GateError):
+        promote(root, "demo_v1", "LIVE", "zhangjl", "live",
+                registry_path=reg, report_root=root / "reports",
+                experiments_root=root / "experiments", data_root=data_root)
+    assert _snapshot(reg, "demo_v1") == before  # zero mutation

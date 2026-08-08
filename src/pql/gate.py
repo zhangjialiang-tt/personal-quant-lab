@@ -216,31 +216,38 @@ def _check_paper(repo, registry_path, experiments_root, report_root, strategy, s
         raise GateError(f"VALIDATED->PAPER freeze mismatch: {exc}") from exc
     if not _code_clean(experiments_root):
         raise GateError("VALIDATED->PAPER requires clean code")
+    # The AUTHORITATIVE gate input is the RECOMPUTED evidence from the raw
+    # PaperAccount artifacts — never the persisted paper_report.json (which is
+    # only an audit copy and could be hand-edited). review P1-2b.
+    if paper_dir is not None:
+        from pql.execution.report import build_paper_gate_evidence
+
+        evidence = build_paper_gate_evidence(
+            repo, strategy, data_root=Path(paper_dir).parent,
+            paper_root=paper_dir, report_root=report_root, persist=False)
+        if evidence.get("overall") != "PASS":
+            raise GateError(
+                f"VALIDATED->PAPER recomputed paper gate overall is "
+                f"{evidence.get('overall')!r}; not PASS")
+        # provenance must match the strategy/freeze (from the recomputed evidence)
+        prov = evidence.get("provenance") or {}
+        if str(prov.get("candidate_hash", "")) != str(freeze.get("candidate_hash", "")):
+            raise GateError("VALIDATED->PAPER paper report candidate_hash != freeze "
+                            "candidate_hash")
+        if prov.get("market_rule_version") != spec.market_rule_version:
+            raise GateError("VALIDATED->PAPER paper report market_rule_version mismatch")
+        return
+    # paper_dir absent: fall back to a persisted report (test/back-compat path)
     report = _paper_report(report_root, strategy)
     if report is None:
         raise GateError("VALIDATED->PAPER requires a paper_report")
     if report.get("overall") != "PASS":
         raise GateError(f"VALIDATED->PAPER paper gate overall is {report.get('overall')!r}; not PASS")
-    # provenance must match the strategy/freeze/risk policy
     prov = report.get("provenance") or {}
     if str(prov.get("candidate_hash", "")) != str(freeze.get("candidate_hash", "")):
         raise GateError("VALIDATED->PAPER paper_report candidate_hash != freeze candidate_hash")
     if prov.get("market_rule_version") != spec.market_rule_version:
         raise GateError("VALIDATED->PAPER paper_report market_rule_version mismatch")
-    # the report must not be stale relative to the CURRENT PaperAccount state
-    # (review P1-2): recompute the fingerprint from the live account and compare.
-    if paper_dir is not None:
-        from pql.execution.paper import PaperAccount
-        from pql.execution.report import paper_state_fingerprint
-
-        account = PaperAccount(strategy, paper_dir)
-        current = paper_state_fingerprint(account)
-        recorded = report.get("paper_state_fingerprint", "")
-        if not recorded or current != recorded:
-            raise GateError(
-                "VALIDATED->PAPER paper_report is stale: PaperAccount state does not "
-                "match the report's paper_state_fingerprint; regenerate the report"
-            )
 
 
 def promote(

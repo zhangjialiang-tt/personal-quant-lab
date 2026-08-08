@@ -118,6 +118,50 @@ def market_evidence(source: str) -> bool:
     return source in ("akshare", "tushare")
 
 
+def _derive_paper_metrics(account: PaperAccount) -> dict[str, int]:
+    """Derive the three ledger/metric Gate inputs from the PaperAccount RAW
+    artifacts — never from meta.json (review P1-2b: meta is a cache, not a gate
+    source of truth):
+      - trading_days     = unique persisted equity dates
+      - rebalance_cycles = count of decision events
+      - sim_orders       = count of EXECUTED BUY/SELL in the order ledger
+    """
+    trading_days = 0
+    eq_path = account.equity_path
+    if eq_path.exists():
+        try:
+            eq = pd.read_parquet(eq_path)
+            if len(eq) and "date" in eq:
+                trading_days = int(eq["date"].nunique())
+        except (ValueError, OSError, KeyError):  # pragma: no cover - defensive
+            trading_days = 0
+    rebalance_cycles = sum(1 for e in account.read_events() if e.get("kind") == "decision")
+    sim_orders = sum(1 for o in account.executed_orders()
+                     if o.get("status") == "EXECUTED" and o.get("side") in ("BUY", "SELL"))
+    return {"trading_days": trading_days,
+            "rebalance_cycles": rebalance_cycles,
+            "sim_orders": sim_orders}
+
+
+def build_paper_gate_evidence(
+    repo_root: str | Path,
+    strategy: str,
+    *,
+    data_root: str | Path = "data",
+    paper_root: str | Path | None = None,
+    report_root: str | Path = "reports",
+    persist: bool = False,
+) -> dict[str, Any]:
+    """Recompute the five Paper Gate metrics + overall from the PaperAccount RAW
+    artifacts (reconcile + silent_failures + equity dates + decision events +
+    executed order ledger). This is the AUTHORITATIVE gate input — the promotion
+    gate uses this, and a persisted paper_report.json is only an audit copy
+    (review P1-2b)."""
+    return load_paper_report(repo_root, strategy, data_root=data_root,
+                             paper_root=paper_root, report_root=report_root,
+                             persist=persist)
+
+
 def load_paper_report(
     repo_root: str | Path,
     strategy: str,
@@ -160,9 +204,12 @@ def load_paper_report(
         except (ValueError, OSError):
             meta = {}
 
-    trading_days = int(meta.get("trading_days", 0))
-    rebalance_cycles = int(meta.get("rebalance_cycles", 0))
-    sim_orders = int(meta.get("sim_orders", 0))
+    # Gate metrics are DERIVED from the raw account artifacts, never from meta
+    # (review P1-2b). meta is a cache/summary only.
+    derived = _derive_paper_metrics(account)
+    trading_days = derived["trading_days"]
+    rebalance_cycles = derived["rebalance_cycles"]
+    sim_orders = derived["sim_orders"]
     unreconciled = int(rec["unreconciled"])
     silent = silent_failures(account)
 
