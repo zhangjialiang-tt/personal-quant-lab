@@ -85,6 +85,19 @@ def test_missing_price_skipped_no_fake_fill(tmp_path):
     assert not (r.orders["idx"] == 5).any()
 
 
+def test_execution_price_open_fills_at_open_not_close(tmp_path):
+    # execution_price=open: valuation uses raw close, fills use raw open
+    # (open = close - 0.1 in make_snapshot). Fill at idx1 must be 100.9.
+    ds = make_snapshot(tmp_path, {SYMBOL: CLOSES}, name="open")
+    dates = ds.execution_frame()["date"].unique()
+    r = run_backtest_impl(
+        buy_hold_signal(dates, SYMBOL), [SYMBOL],
+        TimingContract(execution_price="open"), _Z, PC, ds,
+    )
+    assert r.orders.iloc[0]["idx"] == 1
+    assert r.orders.iloc[0]["price"] == pytest.approx(100.9)  # open at D1, not 101
+
+
 def test_research_price_not_used_as_execution_price(tmp_path):
     # close_adj (research) differs from raw close; the fill must use raw close.
     ds = make_snapshot(tmp_path, {SYMBOL: CLOSES}, name="pit",

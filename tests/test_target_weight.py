@@ -1,15 +1,13 @@
 """M3 TargetWeightIntent contract tests: from_orders path, targetpercent,
 cash_sharing (shared cash pool), sell-before-buy (call_seq), and the
-execution-bar shift with Execution-Revaluation valuation semantics.
-
-Note: vectorbt 1.1.0 sizes targetpercent orders at the EXECUTION close price and
-ignores val_price for share count (see PLAN_DEVIATION in the M3 report). These
-tests assert the actual, frozen-contract behavior of the engine.
+execution-bar shift with Execution-Revaluation valuation semantics (target
+quantity sized at the close of the bar BEFORE the execution bar).
 """
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from pql.backtest.engine import TargetWeightIntent, run_backtest_impl
 from pql.schemas import CostModel, PortfolioConfig
@@ -63,6 +61,24 @@ def test_target_weight_execution_bar_2_fills_at_t_plus_2(tmp_path):
     # rebalance at idx3: sell A, buy B
     assert (r.orders[(r.orders["idx"] == 3) & (r.orders["side"] == 1)]).size > 0
     assert (r.orders[(r.orders["idx"] == 3) & (r.orders["side"] == 0) & (r.orders["col"] == 1)]).size > 0
+
+
+def test_execution_revaluation_quantity_uses_val_price(tmp_path):
+    # A target 50% at D0, execution_bar=2. Execution at D2; val_price = raw
+    # close of the bar BEFORE execution = close[D1] = 101. The target quantity
+    # must be 0.5 * 100000 / 101 = 495.0495 (NOT 0.5*100000/102 = 490.2).
+    ds = make_snapshot(tmp_path, {A: np.arange(100.0, 110.0)}, name="twreval")
+    dates = ds.execution_frame()["date"].unique()
+    w = pd.DataFrame(np.nan, index=dates, columns=[A])
+    w.iloc[0] = 0.5
+    r = run_backtest_impl(TargetWeightIntent(w), [A], TimingContract(execution_bar=2),
+                          _Z, PC, ds)
+    a_buy = r.orders[(r.orders["side"] == 0) & (r.orders["col"] == 0)]
+    assert len(a_buy) == 1
+    assert a_buy.iloc[0]["idx"] == 2  # fill at T+2
+    assert a_buy.iloc[0]["price"] == 102.0  # execution at close 102
+    expected_shares = 0.5 * INIT / 101.0  # val_price = close[D1] = 101
+    assert a_buy.iloc[0]["size"] == pytest.approx(expected_shares, rel=1e-6)
 
 
 def test_target_weight_cash_sharing_shared_pool(tmp_path):

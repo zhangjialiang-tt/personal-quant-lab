@@ -3,9 +3,10 @@
 - TargetWeightIntent -> Portfolio.from_orders (targetpercent, cash_sharing,
   call_seq='auto', group_by, val_price = Execution Revaluation)
 
-Execution prices come from DatasetView.execution_frame() (raw), never from the
-adjusted research series. Builds the BacktestResult (equity/orders/metrics/
-run_meta) with vectorbt-version provenance.
+Crucial separation (frozen contract): portfolio VALUATION uses the raw close
+series, order EXECUTION uses the raw open/close series (execution_price), and
+TargetWeight sizing (val_price) uses the raw close. Adjusted research prices are
+never used for execution. Builds the BacktestResult with vectorbt provenance.
 """
 from __future__ import annotations
 
@@ -39,15 +40,16 @@ class TargetWeightIntent:
 TradingIntent = SignalIntent | TargetWeightIntent
 
 
-def _execution_price_frame(dataset: DatasetView, execution_price: str) -> pd.DataFrame:
+def _price_frame(dataset: DatasetView, column: str) -> pd.DataFrame:
     frame = dataset.execution_frame()  # [date, symbol, open, close]
-    if execution_price not in ("open", "close"):
-        raise ValueError(f"execution_price must be 'open' or 'close', got {execution_price!r}")
-    pivot = frame.pivot(index="date", columns="symbol", values=execution_price)
+    if column not in ("open", "close"):
+        raise ValueError(f"column must be 'open' or 'close', got {column!r}")
+    pivot = frame.pivot(index="date", columns="symbol", values=column)
     return pivot.sort_index()
 
 
 def _to_equity_series(value) -> pd.Series:
+    """Total portfolio value; a multi-column value frame is summed to one nav."""
     if isinstance(value, pd.DataFrame):
         return value.sum(axis=1)
     return value
@@ -62,32 +64,42 @@ def run_backtest_impl(
     dataset: DatasetView,
 ) -> BacktestResult:
     assert_no_lookahead(execution_model)
-    price = _execution_price_frame(dataset, execution_model.execution_price)
-    price = price.reindex(columns=[s for s in universe if s in price.columns])
+
+    # VALUATION price is always the raw close; EXECUTION price is open or close.
+    raw_close = _price_frame(dataset, "close")
+    order_price = (
+        _price_frame(dataset, "open")
+        if execution_model.execution_price == "open"
+        else raw_close
+    )
+    cols = [s for s in universe if s in raw_close.columns]
+    raw_close = raw_close.reindex(columns=cols)
+    order_price = order_price.reindex(columns=cols)
     n = execution_model.execution_bar
-    has_price = price.notna()
+    has_price = order_price.notna()
 
     skipped: list[tuple] = []
     if isinstance(intent, SignalIntent):
         entries = intent.entries.reindex(
-            index=price.index, columns=price.columns, fill_value=False
+            index=order_price.index, columns=order_price.columns, fill_value=False
         )
         exits = intent.exits.reindex(
-            index=price.index, columns=price.columns, fill_value=False
+            index=order_price.index, columns=order_price.columns, fill_value=False
         )
         # skipped is judged at the EXECUTION day (signal shifted), where the fill
-        # would have happened: signal active pre-shift AND no price at that day.
+        # would have happened: signal active pre-shift AND no execution price.
         active_exec = (entries | exits).shift(n, fill_value=False)
         skipped = [
             (d.date(), s)
-            for d in price.index
-            for s in price.columns
+            for d in order_price.index
+            for s in order_price.columns
             if not bool(has_price.loc[d, s]) and bool(active_exec.loc[d, s])
         ]
         entries = entries & has_price
         exits = exits & has_price
         pf = vbt.Portfolio.from_signals(
-            close=price,
+            close=raw_close,
+            price=order_price,
             entries=entries.shift(n, fill_value=False),
             exits=exits.shift(n, fill_value=False),
             init_cash=portfolio_config.init_cash,
@@ -99,20 +111,23 @@ def run_backtest_impl(
         intent_kind = "signal"
         valuation_mode = "signal_fill"
     else:
-        weights = intent.weights.reindex(index=price.index, columns=price.columns)
+        weights = intent.weights.reindex(
+            index=order_price.index, columns=order_price.columns
+        )
         weights_exec = weights.shift(n)
         skipped = [
             (d.date(), s)
-            for d in price.index
-            for s in price.columns
+            for d in order_price.index
+            for s in order_price.columns
             if not bool(has_price.loc[d, s]) and pd.notna(weights_exec.loc[d, s])
         ]
         weights = weights.where(has_price)
-        # Execution Revaluation (frozen): val_price = close of the bar before the
-        # execution bar; first bar falls back to its own close (no prior bar).
-        val_price = price.shift(1).fillna(price)
+        # Execution Revaluation (frozen): target quantity sized at the close of
+        # the bar BEFORE the execution bar; first bar falls back to its own close.
+        val_price = raw_close.shift(1).fillna(raw_close)
         pf = vbt.Portfolio.from_orders(
-            close=price,
+            close=raw_close,
+            price=order_price,
             size=weights.shift(n),
             size_type="targetpercent",
             cash_sharing=True,
@@ -129,9 +144,16 @@ def run_backtest_impl(
         valuation_mode = "execution_revaluation"
 
     equity = _to_equity_series(pf.value())
+    asset_value = _to_equity_series(pf.asset_value())
     orders = pf.orders.records
+    trades = pf.trades.records
     metrics = compute_metrics(
-        equity, orders, init_cash=portfolio_config.init_cash, price=price
+        equity,
+        orders=orders,
+        trades=trades,
+        asset_value=asset_value,
+        dates=order_price.index,
+        init_cash=portfolio_config.init_cash,
     )
     run_meta = {
         "engine": "vectorbt",
