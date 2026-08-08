@@ -26,5 +26,5 @@ milestones:
         review: ACCEPT
     M6:
         state: IMPLEMENTED
-        commit: 74c0d06e7ccc9bdec08d6587c9e6d944012b9ba3
+        commit: 489f7a57c66880322f518c2a06018e7bef0fa161
         review: PENDING
