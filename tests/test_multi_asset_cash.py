@@ -141,3 +141,42 @@ def test_four_simultaneous_entries_allocate_equal_quarter(tmp_path):
     assert len(buys) == 4
     for _, o in buys.iterrows():
         assert o["size"] == pytest.approx(0.25 * INIT / 100.0, rel=0.06)
+
+
+def _dyn_run(tmp_path, entries_at, exits_at):
+    """A+B both price 100+; entries_at/exits_at = lists of (bar_index, col 0|1)."""
+    n = 8
+    ds = make_snapshot(tmp_path, {A: np.arange(100.0, 100.0 + n),
+                                  B: np.arange(100.0, 100.0 + n)}, name="dyn")
+    dates = ds.execution_frame()["date"].unique()
+    e = pd.DataFrame(False, index=dates, columns=[A, B])
+    x = pd.DataFrame(False, index=dates, columns=[A, B])
+    for bar, col in entries_at:
+        e.iloc[bar, col] = True
+    for bar, col in exits_at:
+        x.iloc[bar, col] = True
+    return run_backtest_impl(SignalIntent(e, x), [A, B], TimingContract(), _Z, PC, ds)
+
+
+def test_rebalance_when_bside_exits_a_goes_full(tmp_path):
+    """A+B = 50/50; B exits -> A must rebalance to ~100% (not stay at 50%)."""
+    r = _dyn_run(tmp_path, [(0, 0), (0, 1)], [(3, 1)])  # A+B enter, B exits bar3
+    # at idx4: B sold AND A bought up (the freed cash is redeployed to A)
+    b_sell = r.orders[(r.orders["idx"] == 4) & (r.orders["side"] == 1) & (r.orders["col"] == 1)]
+    a_fill = r.orders[(r.orders["idx"] == 4) & (r.orders["side"] == 0) & (r.orders["col"] == 0)]
+    assert len(b_sell) == 1
+    assert len(a_fill) == 1  # A IS rebalanced (was the bug)
+    # A's rebalance buy notional ≈ the cash released by B ≈ 0.5 * INIT
+    a_buy_value = a_fill.iloc[0]["size"] * a_fill.iloc[0]["price"]
+    assert a_buy_value == pytest.approx(0.5 * INIT, rel=0.06)
+
+
+def test_rebalance_when_b_enrolls_a_halves(tmp_path):
+    """A = ~100%; B enrolls -> A must drop to ~50% and B reach ~50%."""
+    r = _dyn_run(tmp_path, [(0, 0), (3, 1)], [])  # A enters bar0, B enters bar3
+    # at bar 3 B enters -> idx4: A sells half (~minus 50% of INIT/100), B buys
+    a_sell = r.orders[(r.orders["idx"] == 4) & (r.orders["side"] == 1) & (r.orders["col"] == 0)]
+    b_buy = r.orders[(r.orders["idx"] == 4) & (r.orders["side"] == 0) & (r.orders["col"] == 1)]
+    assert len(a_sell) == 1
+    assert len(b_buy) == 1
+    assert b_buy.iloc[0]["size"] == pytest.approx(0.5 * INIT / 100.0, rel=0.06)

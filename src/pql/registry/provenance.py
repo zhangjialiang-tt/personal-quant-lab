@@ -17,6 +17,7 @@ code that produced the result, so they never make a run "dirty".
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,43 +86,33 @@ def _untracked_in_scope(repo_root: Path) -> list[str]:
 def git_state(experiments_root: str | Path) -> GitState:
     """Capture current git research-code state.
 
+    - code_commit = stripped `git rev-parse HEAD` (40-hex, no trailing newline).
     - code_dirty = tracked or untracked change under the code scope.
-    - patch = git diff for tracked code-scope files, plus the verbatim content
-      of untracked code-scope files (so dirty provenance is actually
-      reproducible). If the repo is dirty but the patch is empty/missing, a
-      ProvenanceError is raised (a `code_dirty: true` without a patch cannot be
-      reproduced).
+    - patch = `git diff HEAD -- <scope>` (HEAD -> final worktree, which already
+      includes BOTH staged and unstaged changes) plus, for each untracked
+      code-scope file, a proper `git apply`-able new-file diff (blob hash +
+      hunk header). Applying this patch to the recorded code_commit therefore
+      reconstructs the exact research code that produced the run. If the repo
+      is dirty but the patch is empty/missing, a ProvenanceError is raised
+      (a `code_dirty: true` without a reproducible patch cannot be reproduced).
     """
     root = repo_root(experiments_root)
     commit, _ = _run_git(root, "rev-parse", "HEAD")
+    commit = commit.strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ProvenanceError(f"unexpected git commit format: {commit!r}")
 
-    # tracked modifications under scope: BOTH unstaged (worktree) and staged
-    # (index). `git diff` alone silently drops staged changes, so a staged edit
-    # would otherwise be recorded as code_dirty=false (M4 review P1).
-    diff_unstaged, _ = _run_git(root, "diff", "--", *_DIRTY_SCOPE)
-    diff_staged, _ = _run_git(root, "diff", "--cached", "--", *_DIRTY_SCOPE)
-    tracked_dirty = bool(diff_unstaged.strip() or diff_staged.strip())
+    # `git diff HEAD -- <scope>` = HEAD -> worktree, covering staged AND
+    # unstaged tracked edits in one well-formed, git-apply-able diff (M4 rev2).
+    diff_head, _ = _run_git(root, "diff", "HEAD", "--", *_DIRTY_SCOPE)
+    tracked_dirty = bool(diff_head.strip())
 
     untracked = _untracked_in_scope(root)
     code_dirty = tracked_dirty or bool(untracked)
 
-    patch_parts: list[str] = []
-    if diff_unstaged.strip():
-        patch_parts.append(diff_unstaged.rstrip("\n"))
-    if diff_staged.strip():
-        patch_parts.append(diff_staged.rstrip("\n"))
+    patch_parts: list[str] = [diff_head.rstrip("\n")] if diff_head.strip() else []
     for rel in untracked:
-        fp = root / rel
-        try:
-            content = fp.read_bytes()
-        except OSError as exc:  # pragma: no cover - defensive
-            raise ProvenanceError(
-                f"repo dirty with untracked {rel} but cannot read it: {exc}"
-            ) from exc
-        patch_parts.append(
-            f"diff --git a/{rel} b/{rel}\nnew file mode 100644\n"
-            f"--- /dev/null\n+++ b/{rel}\n" + _as_diff_body(content)
-        )
+        patch_parts.append(_untracked_diff(root, rel))
 
     patch = "\n".join(p for p in patch_parts if p)
     if code_dirty and not patch:
@@ -152,12 +143,31 @@ def tracked_dirty_paths(repo_root: Path) -> list[str]:
     return sorted(set(paths))
 
 
-def _as_diff_body(content: bytes) -> str:
-    """Render a file's bytes as a git-style unified diff 'new file' body."""
+def _untracked_diff(repo_root: Path, rel: str) -> str:
+    """A proper `git apply`-able new-file diff for an untracked code-scope file,
+    so the recorded patch reconstructs its content (blob hash + hunk header)."""
+    fp = repo_root / rel
+    try:
+        content = fp.read_bytes()
+    except OSError as exc:  # pragma: no cover - defensive
+        raise ProvenanceError(
+            f"repo dirty with untracked {rel} but cannot read it: {exc}"
+        ) from exc
+    blob, _ = _run_git(repo_root, "hash-object", "--", str(fp))
+    blob = blob.strip()
     text = content.decode("utf-8", errors="replace")
     lines = text.splitlines()
-    # git diff uses a leading space for context lines; "+" for added lines.
-    return "\n".join("+" + line for line in lines) + ("\n" if lines else "")
+    n = len(lines)
+    body = "\n".join("+" + line for line in lines)
+    return (
+        f"diff --git a/{rel} b/{rel}\n"
+        f"new file mode 100644\n"
+        f"index 0000000..{blob}\n"
+        f"--- /dev/null\n"
+        f"+++ b/{rel}\n"
+        f"@@ -0,0 +1,{n} @@\n"
+        f"{body}\n"
+    )
 
 
 def dependency_versions() -> dict[str, str]:

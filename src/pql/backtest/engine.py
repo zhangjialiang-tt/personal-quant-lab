@@ -115,10 +115,16 @@ def run_backtest_impl(
             held = (entries.cumsum() - exits.cumsum()).clip(0, 1).astype(bool)
             n_held = held.sum(axis=1).replace(0, 1.0)
             weights = held.div(n_held, axis=0).where(held, 0.0)
-            # Rebalance only on bars where the held set CHANGED (an entry or an
-            # exit); elsewhere NaN -> from_orders holds the current allocation
-            # (pure enter/exit SignalIntent semantics, not a daily rotation).
-            weights = weights.where(entries | exits).where(has_price)
+            # ROW-level rebalance (M4 rev2): whenever the held set CHANGES at a
+            # bar (any entry/exit), submit the FULL target vector so every held
+            # symbol (existing AND newly added) is re-weighted to 1/N. A
+            # cell-level mask would leave untouched symbols at their stale
+            # weight (e.g. A stays 50% when B exits, instead of rebalancing to
+            # 100%). On bars with no held-set change the whole row is NaN ->
+            # no rebalancing (pure SignalIntent enter/exit semantics).
+            held_changed = (entries | exits).any(axis=1)
+            weights = weights.where(held_changed, other=float("nan"), axis=0)
+            weights = weights.where(has_price)
             pf = vbt.Portfolio.from_orders(
                 close=raw_close,
                 price=order_price,
