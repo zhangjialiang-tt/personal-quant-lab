@@ -26,8 +26,13 @@ def make_final_momentum_repo(tmp_path: Path, n_days: int = 1095) -> tuple[Path, 
     and promotes it to RESEARCH. Returns (repo_root, data_root, registry_path)."""
     root = Path(tmp_path)
     for sub in ("config/costs", "config/markets", "config/instruments",
-                "strategies", "experiments", "data"):
+                "strategies", "experiments", "data", "src/pql/_fixture"):
         (root / sub).mkdir(parents=True, exist_ok=True)
+    # A fixture code file so the freeze's code_tree_sha256 has something to bind
+    # (the real strategy code lives in the installed pql package, not the
+    # fixture repo; this dummy file makes the code-tree binding testable).
+    (root / "src" / "pql" / "_fixture" / "code.py").write_text(
+        "FIXTURE_CODE_VERSION = 1\n", encoding="utf-8")
     (root / "config" / "costs" / "test.yaml").write_text(
         "version: cn-etf-cost-2026-v1\nfee_rate: 0.0003\nstamp_duty: 0.0\nslippage: 0.001\n",
         encoding="utf-8")

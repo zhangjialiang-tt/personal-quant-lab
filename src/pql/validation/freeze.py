@@ -53,6 +53,32 @@ def _gate_version(repo_root: Path) -> str:
     return str(data.get("version", ""))
 
 
+# Reproducible strategy implementation scope: the `src/` package that produces
+# the strategy's signals/backtests. Config/spec files (config/, strategies/)
+# are individually bound by their own hashes (spec_sha256, gate/cost/market/
+# instrument hashes), so they are NOT re-hashed here. Evidence outputs
+# (reports/, experiments/) are not part of the code tree, so an evidence-only
+# commit never changes code_tree_sha256 (a whole-HEAD code_commit would — that
+# is the self-invalidation the reviewer flagged).
+_CODE_SCOPE = ("src",)
+
+
+def code_tree_sha256(repo_root: str | Path) -> str:
+    """SHA256 over the strategy implementation code tree (`src/`, .py files),
+    stable across evidence-only commits. Any change to the strategy code
+    (engine/signals/validation/…) changes it."""
+    repo = Path(repo_root)
+    files: dict[str, str] = {}
+    for scope in _CODE_SCOPE:
+        base = repo / scope
+        if not base.exists():
+            continue
+        for p in sorted(base.rglob("*")):
+            if p.is_file() and p.suffix == ".py" and "__pycache__" not in p.parts:
+                files[p.relative_to(repo).as_posix()] = _file_sha256(p)
+    return _sha256_bytes(_canonical_json(files).encode("utf-8"))
+
+
 def compute_freeze_payload(
     repo_root: str | Path, experiments_root: str | Path, spec
 ) -> dict[str, Any]:
@@ -81,6 +107,10 @@ def compute_freeze_payload(
 
     payload = {
         "spec_sha256": spec_sha,
+        "code_tree_sha256": code_tree_sha256(repo),
+        # code_commit is informational provenance (the HEAD at freeze time);
+        # it is NOT part of the stability binding, because evidence-only commits
+        # bump HEAD without changing the code tree.
         "code_commit": code.commit,
         "parameters": dict(effective_params(spec, None)),
         "gate_version": _gate_version(repo),
@@ -91,18 +121,24 @@ def compute_freeze_payload(
         "uv_lock_sha256": uv_lock_sha,
         "dataset_version": spec.dataset_version,
     }
-    candidate_hash = _sha256_bytes(_canonical_json(payload).encode("utf-8"))
+    # candidate_hash binds the STABLE code tree (code_tree_sha256), not the
+    # whole-HEAD code_commit, so committing evidence afterwards does not
+    # invalidate the freeze.
+    _bind_keys = {k: v for k, v in payload.items() if k != "code_commit"}
+    candidate_hash = _sha256_bytes(_canonical_json(_bind_keys).encode("utf-8"))
     payload["candidate_hash"] = candidate_hash
     payload["created"] = _now()
     return payload
 
 
 def verify_report_provenance(report: dict, payload: dict) -> None:
-    """The candidate report's recorded config hashes must match the CURRENT
-    frozen files (a stale report is refused)."""
-    if report.get("code_commit") != payload.get("code_commit"):
+    """The candidate report's recorded code/config fingerprints must match the
+    CURRENT state (a stale report is refused). Compares the stable code-tree
+    fingerprint and config hashes — NOT whole-HEAD code_commit, so an
+    evidence-only commit does not make a valid report appear stale."""
+    if report.get("code_tree_sha256") != payload.get("code_tree_sha256"):
         raise FreezeError(
-            "candidate report code_commit does not match current HEAD; "
+            "candidate report code_tree_sha256 does not match current code; "
             "regenerate the candidate report before freezing"
         )
     cfg = report.get("config_hashes") or {}
@@ -202,9 +238,10 @@ def verify_freeze(freeze: dict, actual: dict) -> None:
     """Verify a stored freeze against the current fingerprint. ANY mismatch on
     a frozen item raises FreezeError ('Frozen candidate changed'). Component
     keys are checked first for a precise message, then the aggregate
-    candidate_hash last."""
+    candidate_hash last. `code_commit` (whole HEAD) is intentionally NOT a
+    binding key: evidence-only commits bump HEAD without changing the code."""
     for key in (
-        "spec_sha256", "code_commit", "parameters", "gate_config_sha256",
+        "spec_sha256", "code_tree_sha256", "parameters", "gate_config_sha256",
         "cost_config_sha256", "market_rule_sha256", "instrument_sha256",
         "uv_lock_sha256", "dataset_version",
     ):

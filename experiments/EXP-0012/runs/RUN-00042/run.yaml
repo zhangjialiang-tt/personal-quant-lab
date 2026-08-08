@@ -1,0 +1,46 @@
+run_id: RUN-00042
+experiment_id: EXP-0012
+strategy: etf_momentum_v1
+parameters:
+  momentum_days: 120
+  ma_filter: 0
+  top_k: 2
+  _kill: K02
+  _variant: K02_COUNTERFACTUAL
+selection_key: _kill=K02;_variant=K02_COUNTERFACTUAL;ma_filter=0;momentum_days=120;top_k=2
+run_kind: DIAGNOSTIC
+visible_to_researcher: true
+dataset_version: market-20260808-v1
+dataset_checksums:
+  prices.parquet: e7836d00a95e60266410f9e55c030a3f91b2a030278e39d2ca8c728382917fe7
+  calendar.parquet: 2dfae992293fb5d1e484dce7a3a69a154e92d7d040867cb9ae4da07f074a98be
+market_rule_version: cn-etf-2026-v1
+cost_model_version: cn-etf-cost-2026-v1
+cost_config:
+  version: cn-etf-cost-2026-v1
+  fee_rate: 0.0003
+  slippage: 0.001
+gate_version: gates-2026-v1
+code_commit: 23c03f7c90aa4cc551ff91615a6f17725aee9392
+code_dirty: true
+git_diff_sha256: bc6803c8b1fec387556ea90c4cab988cbdd3cd3d8463f6c2ad8f846c0aa9ab80
+config_sha256: 2adad2a563accee006fd0ec24fbd963a886113660e8e4fc0496566e40cee0d13
+dependencies:
+  vectorbt: 1.1.0
+  pandas: 3.0.5
+  numpy: 2.4.6
+seed: 42
+timing:
+  execution_bar: 1
+  execution_price: close
+metrics:
+  cagr: 0.3452390620521828
+  annual_vol: 0.15157636080145173
+  sharpe: 2.033318269397988
+  max_drawdown: -0.12103675806719827
+  calmar: 2.8523488861169755
+  n_trades: 39
+  turnover: 0.015784172233411567
+  exposure: 0.8911790258864698
+  win_rate: 0.717948717948718
+created: '2026-08-08T15:18:30+08:00'

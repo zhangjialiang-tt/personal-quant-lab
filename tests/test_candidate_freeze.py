@@ -67,9 +67,9 @@ def test_stale_candidate_report_rejected(tmp_path):
     assert report["overall"] == "PASS"
     report_path = root / "reports" / "validation" / "ftest_v1" / "candidate_report.json"
     r = json.loads(report_path.read_text(encoding="utf-8"))
-    r["code_commit"] = "0" * 40  # stale commit
+    r["code_tree_sha256"] = "0" * 64  # stale code fingerprint
     report_path.write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
-    with pytest.raises(FreezeError, match="code_commit"):
+    with pytest.raises(FreezeError, match="code_tree_sha256"):
         promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
                              registry_path=reg, report_root=root / "reports",
                              experiments_root=root / "experiments", data_root=data_root)
@@ -100,6 +100,57 @@ def test_candidate_hash_deterministic(tmp_path):
     p2 = compute_freeze_payload(root, root / "experiments", spec)
     assert p1["candidate_hash"] == p2["candidate_hash"]
     assert _frozen(root)["candidate_hash"] == p1["candidate_hash"]
+
+
+def _git(root, *args):
+    import subprocess
+
+    subprocess.run(["git", *args], cwd=str(root), capture_output=True, check=True)
+
+
+def test_evidence_only_commit_does_not_invalidate_freeze(tmp_path):
+    """An evidence-only commit (reports/ …) must NOT change the freeze's code
+    binding or candidate_hash — the reviewed self-invalidation concern."""
+    root, data_root, reg = make_final_momentum_repo(tmp_path)
+    run_candidate_pass(root, data_root, reg)
+    frozen = _frozen(root)
+    from pql.schemas import load_spec
+
+    spec = load_spec(root / "strategies" / "ftest_v1.yaml")
+    before = compute_freeze_payload(root, root / "experiments", spec)
+    verify_freeze(frozen, before)  # consistent pre-commit
+
+    # commit an evidence-only file (reports/ is not part of the code tree)
+    ev = root / "reports" / "evidence_only.txt"
+    ev.parent.mkdir(parents=True, exist_ok=True)
+    ev.write_text("evidence", encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "evidence-only commit")
+
+    after = compute_freeze_payload(root, root / "experiments", spec)
+    assert before["code_tree_sha256"] == after["code_tree_sha256"]
+    assert before["candidate_hash"] == after["candidate_hash"]
+    verify_freeze(frozen, after)  # evidence commit did NOT invalidate the freeze
+
+
+def test_freeze_after_evidence_commit_is_allowed(tmp_path):
+    """The reviewer's exact concern: validate candidate -> commit report ->
+    freeze must NOT fail. The freeze binds the code-tree fingerprint, which an
+    evidence-only commit does not change."""
+    root, data_root, reg = make_final_momentum_repo(tmp_path)
+    from pql.validation.pipeline import validate_candidate
+
+    validate_candidate(root, "ftest_v1", data_root=data_root,
+                       report_root=root / "reports",
+                       experiments_root=root / "experiments", persist=True)
+    # commit the report (evidence) BEFORE freezing
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "commit report before freeze")
+    # freeze must still succeed (code unchanged by the evidence commit)
+    promoted = promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
+                                    registry_path=reg, report_root=root / "reports",
+                                    experiments_root=root / "experiments", data_root=data_root)
+    assert promoted["candidate_freeze"]["code_tree_sha256"]
 
 
 def test_freeze_mismatch_on_file_change(tmp_path):
@@ -163,3 +214,15 @@ def test_freeze_mismatch_on_file_change(tmp_path):
     sp2.write_text(sp2.read_text(encoding="utf-8").replace("top_k: 2", "top_k: 3"), encoding="utf-8")
     with pytest.raises(FreezeError):
         _actual()
+    sp2.write_text(sp2.read_text(encoding="utf-8").replace("top_k: 3", "top_k: 2"), encoding="utf-8")
+
+    # modify the strategy implementation code (fixture src/) -> code_tree_sha256
+    _src = root / "src" / "pql" / "_fixture" / "code.py"
+    with open(_src, "a", encoding="utf-8") as fh:
+        fh.write("\n# freeze-mismatch test\n")
+    try:
+        with pytest.raises(FreezeError, match="code_tree_sha256"):
+            _actual()
+    finally:
+        with open(_src, "w", encoding="utf-8") as fh:
+            fh.write("FIXTURE_CODE_VERSION = 1\n")

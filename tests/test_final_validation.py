@@ -50,14 +50,12 @@ def test_freeze_mismatch_rejected_before_consumption(tmp_path):
 def test_code_change_rejected_before_consumption(tmp_path):
     root, data_root, reg = make_final_momentum_repo(tmp_path)
     run_candidate_pass(root, data_root, reg)
-    # simulate a source-code change (any code-scope file) -> code_commit stays
-    # HEAD but the freeze's binding is to the commit; a NEW commit changes it.
-    # Here we instead corrupt the stored freeze's code_commit to prove the
-    # guard refuses before consumption.
+    # simulate a source-code change: corrupt the stored code_tree_sha256 (the
+    # freeze's code binding) to prove the guard refuses before consumption.
     reg2 = yaml.safe_load(reg.read_text(encoding="utf-8"))
-    reg2["strategies"][0]["candidate_freeze"]["code_commit"] = "f" * 40
+    reg2["strategies"][0]["candidate_freeze"]["code_tree_sha256"] = "f" * 64
     reg.write_text(yaml.safe_dump(reg2, sort_keys=False), encoding="utf-8")
-    with pytest.raises(FinalValidationError, match="code_commit"):
+    with pytest.raises(FinalValidationError, match="code_tree_sha256"):
         validate_final(root, "ftest_v1", data_root=data_root, report_root=root / "reports",
                        experiments_root=root / "experiments", registry_path=reg)
     assert _consumed(root) is False

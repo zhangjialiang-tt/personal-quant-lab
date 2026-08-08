@@ -1,0 +1,472 @@
+diff --git a/src/pql/signals/momentum_rotation.py b/src/pql/signals/momentum_rotation.py
+index d85a805..487d17d 100644
+--- a/src/pql/signals/momentum_rotation.py
++++ b/src/pql/signals/momentum_rotation.py
+@@ -1,110 +1,110 @@
+-"""M5.1 ETF Momentum Rotation signal (long-only, monthly rebalance).
+-
+-Relative momentum = close_adj.pct_change(momentum_days) (<= T data only).
+-Absolute-momentum filter: momentum > 0. Optional MA filter: close_adj > MA(ma_filter)
+-when ma_filter > 0 (0 = disabled). Rolling windows use <= T data (never centered).
+-
+-Rebalance contract (D6): the FIRST actual trading day of each calendar month,
+-derived from the research and trading dates — never a fixed 21-day cycle or
+-month-end.
+-
+-On a rebalance day the full target vector is written: rank eligible assets by
+-momentum DESCENDING (tie-break: canonical symbol ASCENDING), keep the top
+-effective_k = min(top_k, risk.max_positions), equal weight 1/K, others 0. If no
+-asset is eligible the target is 100% cash (all weights 0). Non-rebalance rows
+-are NaN (hold current allocation, no forced rebalance).
+-
+-Outputs a TargetWeightIntent so the engine routes it through from_orders
+-(targetpercent, cash_sharing, group_by, Execution Revaluation) per D10.
+-"""
+-from __future__ import annotations
+-
+-import numpy as np
+-import pandas as pd
+-
+-from ..backtest.engine import TargetWeightIntent
+-
+-
+-class MomentumError(ValueError):
+-    """Raised for invalid momentum signal inputs."""
+-
+-
+-def first_trading_day_of_month(dates) -> list[pd.Timestamp]:
+-    """First actual trading day of each calendar month, in ascending order.
+-    Accepts any iterable (including a set); the input is sorted first."""
+-    s = pd.Series(pd.to_datetime(pd.Series(sorted(dates))).dt.normalize())
+-    s = s.drop_duplicates().sort_values()
+-    ym = s.dt.strftime("%Y-%m")
+-    first = s.groupby(ym).first()
+-    return [pd.Timestamp(d) for d in first.tolist()]
+-
+-
+-def momentum_rotation_signal(
+-    research: pd.DataFrame,
+-    *,
+-    calendar_dates,
+-    momentum_days: int,
+-    ma_filter: int = 0,
+-    top_k: int = 2,
+-    max_positions: int | None = None,
+-    rebalance_days: list | None = None,
+-) -> TargetWeightIntent:
+-    """Build a monthly Top-K equal-weight TargetWeightIntent from a research
+-    frame ([date, symbol, close_adj]). Point-in-time: every decision at T uses
+-    only data <= T.
+-
+-    Rebalance SCHEDULE is derived from the authoritative Snapshot trading
+-    calendar (calendar_dates), not from the price data: the first actual trading
+-    day of each calendar month is the scheduled rebalance day, exactly as frozen.
+-    A scheduled day with no price data simply cannot execute (the weight row for
+-    that date is dropped by the engine) — it is never silently redefined as the
+-    next available price day.
+-
+-    `rebalance_days` (optional) overrides the schedule (K06 shift_rebalance
+-    passes a schedule shifted by one actual trading day; the decision at each
+-    shifted day regenerates targets using only data <= that day)."""
+-    if momentum_days < 1:
+-        raise MomentumError(f"momentum_days must be >= 1, got {momentum_days}")
+-    if ma_filter < 0:
+-        raise MomentumError(f"ma_filter must be >= 0, got {ma_filter}")
+-    if top_k < 1:
+-        raise MomentumError(f"top_k must be >= 1, got {top_k}")
+-
+-    df = research[["date", "symbol", "close_adj"]]
+-    pivot = df.pivot(index="date", columns="symbol", values="close_adj").sort_index()
+-    # deterministic column order (canonical symbol ascending) for tie-breaks
+-    pivot = pivot[np.sort(pivot.columns)]
+-
+-    momentum = pivot.pct_change(momentum_days)
+-    eligible = momentum > 0
+-    if ma_filter > 0:
+-        ma = pivot.rolling(ma_filter, min_periods=ma_filter).mean()
+-        eligible = eligible & (pivot > ma)
+-
+-    effective_k = min(top_k, max_positions) if max_positions else top_k
+-    # schedule from the CALENDAR; only dates with prices can actually rebalance
+-    if rebalance_days is None:
+-        rebal = [d for d in first_trading_day_of_month(calendar_dates) if d in pivot.index]
+-    else:
+-        rebal = [pd.Timestamp(d) for d in rebalance_days if pd.Timestamp(d) in pivot.index]
+-
+-    weights = pd.DataFrame(np.nan, index=pivot.index, columns=pivot.columns)
+-    for d in rebal:
+-        m = momentum.loc[d]
+-        elig = eligible.loc[d]
+-        sel = m[elig]
+-        row = pd.Series(0.0, index=pivot.columns)
+-        if sel.empty:
+-            weights.loc[d, row.index] = row  # 100% cash
+-            continue
+-        # momentum DESCENDING; ties broken by canonical symbol ASCENDING (the
+-        # pivot columns are pre-sorted by symbol and the sort is stable).
+-        ranked = sel.sort_values(ascending=False, kind="stable")
+-        picks = ranked.head(effective_k).index
+-        row[picks] = 1.0 / len(picks)
+-        weights.loc[d, row.index] = row
+-
+-    return TargetWeightIntent(weights=weights)
+-
+-
++"""M5.1 ETF Momentum Rotation signal (long-only, monthly rebalance).
++
++Relative momentum = close_adj.pct_change(momentum_days) (<= T data only).
++Absolute-momentum filter: momentum > 0. Optional MA filter: close_adj > MA(ma_filter)
++when ma_filter > 0 (0 = disabled). Rolling windows use <= T data (never centered).
++
++Rebalance contract (D6): the FIRST actual trading day of each calendar month,
++derived from the research and trading dates — never a fixed 21-day cycle or
++month-end.
++
++On a rebalance day the full target vector is written: rank eligible assets by
++momentum DESCENDING (tie-break: canonical symbol ASCENDING), keep the top
++effective_k = min(top_k, risk.max_positions), equal weight 1/K, others 0. If no
++asset is eligible the target is 100% cash (all weights 0). Non-rebalance rows
++are NaN (hold current allocation, no forced rebalance).
++
++Outputs a TargetWeightIntent so the engine routes it through from_orders
++(targetpercent, cash_sharing, group_by, Execution Revaluation) per D10.
++"""
++from __future__ import annotations
++
++import numpy as np
++import pandas as pd
++
++from ..backtest.engine import TargetWeightIntent
++
++
++class MomentumError(ValueError):
++    """Raised for invalid momentum signal inputs."""
++
++
++def first_trading_day_of_month(dates) -> list[pd.Timestamp]:
++    """First actual trading day of each calendar month, in ascending order.
++    Accepts any iterable (including a set); the input is sorted first."""
++    s = pd.Series(pd.to_datetime(pd.Series(sorted(dates))).dt.normalize())
++    s = s.drop_duplicates().sort_values()
++    ym = s.dt.strftime("%Y-%m")
++    first = s.groupby(ym).first()
++    return [pd.Timestamp(d) for d in first.tolist()]
++
++
++def momentum_rotation_signal(
++    research: pd.DataFrame,
++    *,
++    calendar_dates,
++    momentum_days: int,
++    ma_filter: int = 0,
++    top_k: int = 2,
++    max_positions: int | None = None,
++    rebalance_days: list | None = None,
++) -> TargetWeightIntent:
++    """Build a monthly Top-K equal-weight TargetWeightIntent from a research
++    frame ([date, symbol, close_adj]). Point-in-time: every decision at T uses
++    only data <= T.
++
++    Rebalance SCHEDULE is derived from the authoritative Snapshot trading
++    calendar (calendar_dates), not from the price data: the first actual trading
++    day of each calendar month is the scheduled rebalance day, exactly as frozen.
++    A scheduled day with no price data simply cannot execute (the weight row for
++    that date is dropped by the engine) — it is never silently redefined as the
++    next available price day.
++
++    `rebalance_days` (optional) overrides the schedule (K06 shift_rebalance
++    passes a schedule shifted by one actual trading day; the decision at each
++    shifted day regenerates targets using only data <= that day)."""
++    if momentum_days < 1:
++        raise MomentumError(f"momentum_days must be >= 1, got {momentum_days}")
++    if ma_filter < 0:
++        raise MomentumError(f"ma_filter must be >= 0, got {ma_filter}")
++    if top_k < 1:
++        raise MomentumError(f"top_k must be >= 1, got {top_k}")
++
++    df = research[["date", "symbol", "close_adj"]]
++    pivot = df.pivot(index="date", columns="symbol", values="close_adj").sort_index()
++    # deterministic column order (canonical symbol ascending) for tie-breaks
++    pivot = pivot[np.sort(pivot.columns)]
++
++    momentum = pivot.pct_change(momentum_days)
++    eligible = momentum > 0
++    if ma_filter > 0:
++        ma = pivot.rolling(ma_filter, min_periods=ma_filter).mean()
++        eligible = eligible & (pivot > ma)
++
++    effective_k = min(top_k, max_positions) if max_positions else top_k
++    # schedule from the CALENDAR; only dates with prices can actually rebalance
++    if rebalance_days is None:
++        rebal = [d for d in first_trading_day_of_month(calendar_dates) if d in pivot.index]
++    else:
++        rebal = [pd.Timestamp(d) for d in rebalance_days if pd.Timestamp(d) in pivot.index]
++
++    weights = pd.DataFrame(np.nan, index=pivot.index, columns=pivot.columns)
++    for d in rebal:
++        m = momentum.loc[d]
++        elig = eligible.loc[d]
++        sel = m[elig]
++        row = pd.Series(0.0, index=pivot.columns)
++        if sel.empty:
++            weights.loc[d, row.index] = row  # 100% cash
++            continue
++        # momentum DESCENDING; ties broken by canonical symbol ASCENDING (the
++        # pivot columns are pre-sorted by symbol and the sort is stable).
++        ranked = sel.sort_values(ascending=False, kind="stable")
++        picks = ranked.head(effective_k).index
++        row[picks] = 1.0 / len(picks)
++        weights.loc[d, row.index] = row
++
++    return TargetWeightIntent(weights=weights)
++
++
+ __all__ = ["MomentumError", "first_trading_day_of_month", "momentum_rotation_signal"]
+\ No newline at end of file
+diff --git a/src/pql/validation/freeze.py b/src/pql/validation/freeze.py
+index 9a6ac9e..d70b028 100644
+--- a/src/pql/validation/freeze.py
++++ b/src/pql/validation/freeze.py
+@@ -53,6 +53,32 @@ def _gate_version(repo_root: Path) -> str:
+     return str(data.get("version", ""))
+ 
+ 
++# Reproducible strategy implementation scope: the `src/` package that produces
++# the strategy's signals/backtests. Config/spec files (config/, strategies/)
++# are individually bound by their own hashes (spec_sha256, gate/cost/market/
++# instrument hashes), so they are NOT re-hashed here. Evidence outputs
++# (reports/, experiments/) are not part of the code tree, so an evidence-only
++# commit never changes code_tree_sha256 (a whole-HEAD code_commit would — that
++# is the self-invalidation the reviewer flagged).
++_CODE_SCOPE = ("src",)
++
++
++def code_tree_sha256(repo_root: str | Path) -> str:
++    """SHA256 over the strategy implementation code tree (`src/`, .py files),
++    stable across evidence-only commits. Any change to the strategy code
++    (engine/signals/validation/…) changes it."""
++    repo = Path(repo_root)
++    files: dict[str, str] = {}
++    for scope in _CODE_SCOPE:
++        base = repo / scope
++        if not base.exists():
++            continue
++        for p in sorted(base.rglob("*")):
++            if p.is_file() and p.suffix == ".py" and "__pycache__" not in p.parts:
++                files[p.relative_to(repo).as_posix()] = _file_sha256(p)
++    return _sha256_bytes(_canonical_json(files).encode("utf-8"))
++
++
+ def compute_freeze_payload(
+     repo_root: str | Path, experiments_root: str | Path, spec
+ ) -> dict[str, Any]:
+@@ -81,6 +107,10 @@ def compute_freeze_payload(
+ 
+     payload = {
+         "spec_sha256": spec_sha,
++        "code_tree_sha256": code_tree_sha256(repo),
++        # code_commit is informational provenance (the HEAD at freeze time);
++        # it is NOT part of the stability binding, because evidence-only commits
++        # bump HEAD without changing the code tree.
+         "code_commit": code.commit,
+         "parameters": dict(effective_params(spec, None)),
+         "gate_version": _gate_version(repo),
+@@ -91,18 +121,24 @@ def compute_freeze_payload(
+         "uv_lock_sha256": uv_lock_sha,
+         "dataset_version": spec.dataset_version,
+     }
+-    candidate_hash = _sha256_bytes(_canonical_json(payload).encode("utf-8"))
++    # candidate_hash binds the STABLE code tree (code_tree_sha256), not the
++    # whole-HEAD code_commit, so committing evidence afterwards does not
++    # invalidate the freeze.
++    _bind_keys = {k: v for k, v in payload.items() if k != "code_commit"}
++    candidate_hash = _sha256_bytes(_canonical_json(_bind_keys).encode("utf-8"))
+     payload["candidate_hash"] = candidate_hash
+     payload["created"] = _now()
+     return payload
+ 
+ 
+ def verify_report_provenance(report: dict, payload: dict) -> None:
+-    """The candidate report's recorded config hashes must match the CURRENT
+-    frozen files (a stale report is refused)."""
+-    if report.get("code_commit") != payload.get("code_commit"):
++    """The candidate report's recorded code/config fingerprints must match the
++    CURRENT state (a stale report is refused). Compares the stable code-tree
++    fingerprint and config hashes — NOT whole-HEAD code_commit, so an
++    evidence-only commit does not make a valid report appear stale."""
++    if report.get("code_tree_sha256") != payload.get("code_tree_sha256"):
+         raise FreezeError(
+-            "candidate report code_commit does not match current HEAD; "
++            "candidate report code_tree_sha256 does not match current code; "
+             "regenerate the candidate report before freezing"
+         )
+     cfg = report.get("config_hashes") or {}
+@@ -202,9 +238,10 @@ def verify_freeze(freeze: dict, actual: dict) -> None:
+     """Verify a stored freeze against the current fingerprint. ANY mismatch on
+     a frozen item raises FreezeError ('Frozen candidate changed'). Component
+     keys are checked first for a precise message, then the aggregate
+-    candidate_hash last."""
++    candidate_hash last. `code_commit` (whole HEAD) is intentionally NOT a
++    binding key: evidence-only commits bump HEAD without changing the code."""
+     for key in (
+-        "spec_sha256", "code_commit", "parameters", "gate_config_sha256",
++        "spec_sha256", "code_tree_sha256", "parameters", "gate_config_sha256",
+         "cost_config_sha256", "market_rule_sha256", "instrument_sha256",
+         "uv_lock_sha256", "dataset_version",
+     ):
+diff --git a/src/pql/validation/pipeline.py b/src/pql/validation/pipeline.py
+index 0d484f6..78f4d76 100644
+--- a/src/pql/validation/pipeline.py
++++ b/src/pql/validation/pipeline.py
+@@ -41,6 +41,7 @@ from pql.registry.provenance import (
+ from pql.registry.runner import resolve_paths
+ from pql.schemas import load_cost_model, load_spec
+ from pql.signals.registry import effective_params
++from pql.validation.freeze import code_tree_sha256
+ 
+ from .base import grid_configs, run_window
+ from .regimes import regime_analysis
+@@ -282,6 +283,7 @@ def validate_candidate(
+         "gate_content_sha256": cfg["per_file"].get(str(paths["gates"]), ""),
+         "code_commit": gate.commit,
+         "code_dirty": gate.code_dirty,
++        "code_tree_sha256": code_tree_sha256(repo),
+         "config_hashes": cfg["per_file"],
+         "selected_params": default_params,
+         "effective_trial_count": _effective_trial_count(exp_root, strategy),
+diff --git a/tests/final_fixture.py b/tests/final_fixture.py
+index 82ec54a..af18b0c 100644
+--- a/tests/final_fixture.py
++++ b/tests/final_fixture.py
+@@ -26,8 +26,13 @@ def make_final_momentum_repo(tmp_path: Path, n_days: int = 1095) -> tuple[Path,
+     and promotes it to RESEARCH. Returns (repo_root, data_root, registry_path)."""
+     root = Path(tmp_path)
+     for sub in ("config/costs", "config/markets", "config/instruments",
+-                "strategies", "experiments", "data"):
++                "strategies", "experiments", "data", "src/pql/_fixture"):
+         (root / sub).mkdir(parents=True, exist_ok=True)
++    # A fixture code file so the freeze's code_tree_sha256 has something to bind
++    # (the real strategy code lives in the installed pql package, not the
++    # fixture repo; this dummy file makes the code-tree binding testable).
++    (root / "src" / "pql" / "_fixture" / "code.py").write_text(
++        "FIXTURE_CODE_VERSION = 1\n", encoding="utf-8")
+     (root / "config" / "costs" / "test.yaml").write_text(
+         "version: cn-etf-cost-2026-v1\nfee_rate: 0.0003\nstamp_duty: 0.0\nslippage: 0.001\n",
+         encoding="utf-8")
+diff --git a/tests/test_candidate_freeze.py b/tests/test_candidate_freeze.py
+index 9205803..6e88222 100644
+--- a/tests/test_candidate_freeze.py
++++ b/tests/test_candidate_freeze.py
+@@ -67,9 +67,9 @@ def test_stale_candidate_report_rejected(tmp_path):
+     assert report["overall"] == "PASS"
+     report_path = root / "reports" / "validation" / "ftest_v1" / "candidate_report.json"
+     r = json.loads(report_path.read_text(encoding="utf-8"))
+-    r["code_commit"] = "0" * 40  # stale commit
++    r["code_tree_sha256"] = "0" * 64  # stale code fingerprint
+     report_path.write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
+-    with pytest.raises(FreezeError, match="code_commit"):
++    with pytest.raises(FreezeError, match="code_tree_sha256"):
+         promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
+                              registry_path=reg, report_root=root / "reports",
+                              experiments_root=root / "experiments", data_root=data_root)
+@@ -102,6 +102,57 @@ def test_candidate_hash_deterministic(tmp_path):
+     assert _frozen(root)["candidate_hash"] == p1["candidate_hash"]
+ 
+ 
++def _git(root, *args):
++    import subprocess
++
++    subprocess.run(["git", *args], cwd=str(root), capture_output=True, check=True)
++
++
++def test_evidence_only_commit_does_not_invalidate_freeze(tmp_path):
++    """An evidence-only commit (reports/ …) must NOT change the freeze's code
++    binding or candidate_hash — the reviewed self-invalidation concern."""
++    root, data_root, reg = make_final_momentum_repo(tmp_path)
++    run_candidate_pass(root, data_root, reg)
++    frozen = _frozen(root)
++    from pql.schemas import load_spec
++
++    spec = load_spec(root / "strategies" / "ftest_v1.yaml")
++    before = compute_freeze_payload(root, root / "experiments", spec)
++    verify_freeze(frozen, before)  # consistent pre-commit
++
++    # commit an evidence-only file (reports/ is not part of the code tree)
++    ev = root / "reports" / "evidence_only.txt"
++    ev.parent.mkdir(parents=True, exist_ok=True)
++    ev.write_text("evidence", encoding="utf-8")
++    _git(root, "add", "-A")
++    _git(root, "commit", "-q", "-m", "evidence-only commit")
++
++    after = compute_freeze_payload(root, root / "experiments", spec)
++    assert before["code_tree_sha256"] == after["code_tree_sha256"]
++    assert before["candidate_hash"] == after["candidate_hash"]
++    verify_freeze(frozen, after)  # evidence commit did NOT invalidate the freeze
++
++
++def test_freeze_after_evidence_commit_is_allowed(tmp_path):
++    """The reviewer's exact concern: validate candidate -> commit report ->
++    freeze must NOT fail. The freeze binds the code-tree fingerprint, which an
++    evidence-only commit does not change."""
++    root, data_root, reg = make_final_momentum_repo(tmp_path)
++    from pql.validation.pipeline import validate_candidate
++
++    validate_candidate(root, "ftest_v1", data_root=data_root,
++                       report_root=root / "reports",
++                       experiments_root=root / "experiments", persist=True)
++    # commit the report (evidence) BEFORE freezing
++    _git(root, "add", "-A")
++    _git(root, "commit", "-q", "-m", "commit report before freeze")
++    # freeze must still succeed (code unchanged by the evidence commit)
++    promoted = promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
++                                    registry_path=reg, report_root=root / "reports",
++                                    experiments_root=root / "experiments", data_root=data_root)
++    assert promoted["candidate_freeze"]["code_tree_sha256"]
++
++
+ def test_freeze_mismatch_on_file_change(tmp_path):
+     root, data_root, reg = make_final_momentum_repo(tmp_path)
+     run_candidate_pass(root, data_root, reg)
+@@ -162,4 +213,16 @@ def test_freeze_mismatch_on_file_change(tmp_path):
+     sp2 = root / "strategies" / "ftest_v1.yaml"
+     sp2.write_text(sp2.read_text(encoding="utf-8").replace("top_k: 2", "top_k: 3"), encoding="utf-8")
+     with pytest.raises(FreezeError):
+-        _actual()
+\ No newline at end of file
++        _actual()
++    sp2.write_text(sp2.read_text(encoding="utf-8").replace("top_k: 3", "top_k: 2"), encoding="utf-8")
++
++    # modify the strategy implementation code (fixture src/) -> code_tree_sha256
++    _src = root / "src" / "pql" / "_fixture" / "code.py"
++    with open(_src, "a", encoding="utf-8") as fh:
++        fh.write("\n# freeze-mismatch test\n")
++    try:
++        with pytest.raises(FreezeError, match="code_tree_sha256"):
++            _actual()
++    finally:
++        with open(_src, "w", encoding="utf-8") as fh:
++            fh.write("FIXTURE_CODE_VERSION = 1\n")
+\ No newline at end of file
+diff --git a/tests/test_final_validation.py b/tests/test_final_validation.py
+index eceaf20..3d61942 100644
+--- a/tests/test_final_validation.py
++++ b/tests/test_final_validation.py
+@@ -50,14 +50,12 @@ def test_freeze_mismatch_rejected_before_consumption(tmp_path):
+ def test_code_change_rejected_before_consumption(tmp_path):
+     root, data_root, reg = make_final_momentum_repo(tmp_path)
+     run_candidate_pass(root, data_root, reg)
+-    # simulate a source-code change (any code-scope file) -> code_commit stays
+-    # HEAD but the freeze's binding is to the commit; a NEW commit changes it.
+-    # Here we instead corrupt the stored freeze's code_commit to prove the
+-    # guard refuses before consumption.
++    # simulate a source-code change: corrupt the stored code_tree_sha256 (the
++    # freeze's code binding) to prove the guard refuses before consumption.
+     reg2 = yaml.safe_load(reg.read_text(encoding="utf-8"))
+-    reg2["strategies"][0]["candidate_freeze"]["code_commit"] = "f" * 40
++    reg2["strategies"][0]["candidate_freeze"]["code_tree_sha256"] = "f" * 64
+     reg.write_text(yaml.safe_dump(reg2, sort_keys=False), encoding="utf-8")
+-    with pytest.raises(FinalValidationError, match="code_commit"):
++    with pytest.raises(FinalValidationError, match="code_tree_sha256"):
+         validate_final(root, "ftest_v1", data_root=data_root, report_root=root / "reports",
+                        experiments_root=root / "experiments", registry_path=reg)
+     assert _consumed(root) is False
