@@ -20,6 +20,7 @@ from pql.schemas import StrategySpec
 from .experiments import (
     param_variant_counts,
     select_run_keys,
+    selection_key,
 )
 
 
@@ -104,4 +105,42 @@ def check_would_exceed(spec: StrategySpec, experiments_root: str | Path,
             )
 
 
-__all__ = ["BudgetError", "check_budget", "check_would_exceed"]
+def check_grid_budget(spec: StrategySpec, experiments_root: str | Path,
+                      grid: list[dict[str, Any]]) -> None:
+    """Preflight the ENTIRE proposed SELECT grid against the research budget
+    BEFORE any backtest runs. This is the candidate-pipeline gate: if the union
+    of existing SELECT keys and the grid's keys exceeds max_total_selection_runs,
+    or any param would exceed its variant cap, the whole evaluation is rejected
+    with zero backtests executed (M5 review P0)."""
+    cand_keys = {selection_key(cfg) for cfg in grid}
+    existing = select_run_keys(experiments_root, spec.name)
+    total_after = len(existing | cand_keys)
+
+    total = _budget_total(spec)
+    if total > 0 and total_after > total:
+        raise BudgetError(
+            f"Research Budget exceeded (max_total_selection_runs={total}); the "
+            f"proposed grid would make {total_after} distinct trials "
+            f"({len(existing)} existing + {len(cand_keys)} proposed). Create a "
+            "new hypothesis/strategy version instead of silently extending search."
+        )
+
+    variants = _budget_variants(spec)
+    counts = param_variant_counts(experiments_root, spec.name)
+    for key, cap in variants.items():
+        if cap <= 0:
+            continue
+        proposed = set(counts.get(key, set()))
+        for cfg in grid:
+            if key in cfg:
+                proposed.add(str(cfg[key]))
+        if len(proposed) > cap:
+            raise BudgetError(
+                f"Research Budget exceeded (max_variants_per_param[{key}]={cap}); "
+                f"the proposed grid would make {len(proposed)} distinct values. "
+                "Create a new hypothesis/strategy version instead of silently "
+                "extending search."
+            )
+
+
+__all__ = ["BudgetError", "check_budget", "check_grid_budget", "check_would_exceed"]

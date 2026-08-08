@@ -27,10 +27,11 @@ MIN_YEAR_DAYS = 60
 
 def parameter_robustness(spec, ds, cost, data_root) -> dict[str, Any]:
     """Full-grid in-sample evaluation. Returns grid rows, best params, best
-    sharpe, and the frozen param_stability fraction."""
+    sharpe, and the frozen param_stability fraction. Sharpe=NaN is treated as
+    -inf for best-selection (a config that doesn't trade never wins)."""
     grid = grid_configs(spec)
     rows: list[dict] = []
-    best_sharpe = None
+    best_sharpe = float("-inf")
     best_cfg = None
     for cfg in grid:
         res = run_window(
@@ -38,12 +39,13 @@ def parameter_robustness(spec, ds, cost, data_root) -> dict[str, Any]:
             spec.windows["in_sample"][1],
         )
         sharpe = res.metrics.get("sharpe")
+        s = float(sharpe) if sharpe is not None and not math.isnan(float(sharpe)) else float("-inf")
         rows.append(
-            {"params": cfg, "selection_key": selection_key(cfg), "metrics": dict(res.metrics)}
+            {"params": cfg, "selection_key": selection_key(cfg), "metrics": dict(res.metrics),
+             "result": res}
         )
-        if best_sharpe is None or (sharpe is not None and not math.isnan(float(sharpe))
-                                   and float(sharpe) > best_sharpe):
-            best_sharpe = sharpe
+        if s > best_sharpe:
+            best_sharpe = s
             best_cfg = cfg
 
     def _stable(row):
@@ -111,8 +113,11 @@ def time_robustness(spec, ds, cost, data_root) -> dict[str, Any]:
 
 
 def _days(ds, year: int) -> int:
+    """Number of UNIQUE trading dates in the calendar year (M5 review P1: the
+    long research frame has one row per symbol per date, so counting rows would
+    inflate by the universe size)."""
     dates = pd.to_datetime(ds.research_frame()["date"]).dt.normalize()
-    return int((dates.dt.year == year).sum())
+    return int(dates[dates.dt.year == year].nunique())
 
 
 def _default_params(spec) -> dict[str, Any]:

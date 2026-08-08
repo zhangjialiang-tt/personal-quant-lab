@@ -133,6 +133,13 @@ def validate_candidate(
     default_params = effective_params(spec, None)
     grid = grid_configs(spec)
 
+    # M5 review P0: preflight the ENTIRE proposed SELECT grid against the
+    # research budget BEFORE any backtest runs. A budget-exceed grid aborts here
+    # with zero backtests executed and no SELECT runs written.
+    from pql.registry.budget import check_grid_budget
+
+    check_grid_budget(spec, exp_root, grid)
+
     gate = git_state(exp_root)
     cfg = config_hashes(paths["spec"], paths["gates"], paths["cost"],
                         paths["market"], paths["instruments"])
@@ -154,12 +161,14 @@ def validate_candidate(
                 gate, cfg["config_sha256"], gate_version, is_metrics,
                 is_res.equity, is_res.orders, exp_root)
 
-    # -- parameter robustness (full grid as SELECT runs) ----------------------
+    # -- parameter robustness (full grid as SELECT runs, with real artifacts) --
     pr = parameter_robustness(spec, ds, cost, data_root)
     for row in pr["rows"]:
         _write_eval(exp_id, strategy, row["params"], "SELECT", spec, cost, ds,
                     gate, cfg["config_sha256"], gate_version, row["metrics"],
-                    None, None, exp_root)
+                    row.get("result").equity if row.get("result") else None,
+                    row.get("result").orders if row.get("result") else None,
+                    exp_root)
 
     # -- walk-forward (OOS test folds as EVALUATE runs) -----------------------
     wf = walkforward(spec, grid, ds, cost, data_root)

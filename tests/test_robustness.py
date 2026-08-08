@@ -103,3 +103,46 @@ def test_time_robustness_insufficient_year_excluded(tmp_path):
             assert y["status"] == "insufficient_data"
     # valid years all have >= MIN_YEAR_DAYS
     assert all(y["trading_days"] >= MIN_YEAR_DAYS for y in tr["years"] if y["status"] == "ok")
+
+
+def test_trading_days_counts_unique_dates_not_rows(tmp_path):
+    """A year's trading_days is the number of UNIQUE dates, never inflated by
+    the universe size (M5 review P1)."""
+    import pandas as pd
+
+    from tests.m5_fixture import make_momentum_repo
+    root, data_root = make_momentum_repo(tmp_path, n_days=1100)
+    spec, cost, ds = load_context(root, "test_momentum_v1", data_root)
+    dates = pd.to_datetime(ds.research_frame()["date"]).dt.normalize()
+    n_sym = ds.research_frame()["symbol"].nunique()
+    assert n_sym > 1
+    tr = time_robustness(spec, ds, cost, data_root)
+    for y in tr["years"]:
+        n_unique = int(dates[dates.dt.year == int(y["year"])].nunique())
+        assert y["trading_days"] == n_unique
+        assert y["trading_days"] < n_unique * n_sym  # not inflated x universe
+
+
+def test_nan_first_config_does_not_poison_best(monkeypatch, tmp_path):
+    """Sharpe=NaN must be treated as -inf for best-selection: a NaN first config
+    must not lock best_sharpe into NaN (M5 review P1)."""
+    import math
+
+    from pql.registry.experiments import selection_key
+    from tests.m5_fixture import make_momentum_repo
+    root, data_root = make_momentum_repo(tmp_path)
+    spec, cost, ds = load_context(root, "test_momentum_v1", data_root)
+    grid = grid_configs(spec)
+    assert len(grid) == 4
+    sharpes = [float("nan"), 1.0, 2.0, 0.5]  # first config is NaN
+    calls = {"n": 0}
+
+    def fake_run_window(_spec, cfg, _ds, _cost, _data_root, _start, _end):
+        calls["n"] += 1
+        return SimpleNamespace(metrics={"sharpe": sharpes[calls["n"] - 1]})
+
+    monkeypatch.setattr("pql.validation.robustness.run_window", fake_run_window)
+    pr = parameter_robustness(spec, ds, cost, data_root)
+    assert pr["best_sharpe"] == 2.0
+    assert pr["best_selection_key"] == selection_key(grid[2])  # cfg with sharpe 2.0
+    assert not math.isnan(pr["best_sharpe"])

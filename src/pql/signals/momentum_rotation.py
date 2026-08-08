@@ -29,8 +29,10 @@ class MomentumError(ValueError):
 
 
 def first_trading_day_of_month(dates) -> list[pd.Timestamp]:
-    """First actual trading day of each calendar month, in ascending order."""
-    s = pd.Series(pd.to_datetime(pd.Series(dates)).dt.normalize()).drop_duplicates().sort_values()
+    """First actual trading day of each calendar month, in ascending order.
+    Accepts any iterable (including a set); the input is sorted first."""
+    s = pd.Series(pd.to_datetime(pd.Series(sorted(dates))).dt.normalize())
+    s = s.drop_duplicates().sort_values()
     ym = s.dt.strftime("%Y-%m")
     first = s.groupby(ym).first()
     return [pd.Timestamp(d) for d in first.tolist()]
@@ -39,6 +41,7 @@ def first_trading_day_of_month(dates) -> list[pd.Timestamp]:
 def momentum_rotation_signal(
     research: pd.DataFrame,
     *,
+    calendar_dates,
     momentum_days: int,
     ma_filter: int = 0,
     top_k: int = 2,
@@ -46,7 +49,14 @@ def momentum_rotation_signal(
 ) -> TargetWeightIntent:
     """Build a monthly Top-K equal-weight TargetWeightIntent from a research
     frame ([date, symbol, close_adj]). Point-in-time: every decision at T uses
-    only data <= T."""
+    only data <= T.
+
+    Rebalance SCHEDULE is derived from the authoritative Snapshot trading
+    calendar (calendar_dates), not from the price data: the first actual trading
+    day of each calendar month is the scheduled rebalance day, exactly as frozen.
+    A scheduled day with no price data simply cannot execute (the weight row for
+    that date is dropped by the engine) — it is never silently redefined as the
+    next available price day."""
     if momentum_days < 1:
         raise MomentumError(f"momentum_days must be >= 1, got {momentum_days}")
     if ma_filter < 0:
@@ -66,7 +76,8 @@ def momentum_rotation_signal(
         eligible = eligible & (pivot > ma)
 
     effective_k = min(top_k, max_positions) if max_positions else top_k
-    rebal = [d for d in first_trading_day_of_month(pivot.index) if d in pivot.index]
+    # schedule from the CALENDAR; only dates with prices can actually rebalance
+    rebal = [d for d in first_trading_day_of_month(calendar_dates) if d in pivot.index]
 
     weights = pd.DataFrame(np.nan, index=pivot.index, columns=pivot.columns)
     for d in rebal:

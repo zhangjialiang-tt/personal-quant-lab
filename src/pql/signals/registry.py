@@ -29,11 +29,13 @@ def effective_params(spec: StrategySpec, overrides: dict[str, Any] | None = None
 
 
 def build_signal(spec: StrategySpec, research: pd.DataFrame,
-                 params: dict[str, Any]) -> TradingIntent:
+                 params: dict[str, Any], calendar_dates=None) -> TradingIntent:
     """Build the TradingIntent for a spec using the given effective params and a
     point-in-time research frame. SignalIntent kinds route to from_signals /
     equal-weight orders; momentum_rotation is a TargetWeightIntent (monthly
-    Top-K rotation) routed to from_orders targetpercent."""
+    Top-K rotation) routed to from_orders targetpercent. `calendar_dates` is the
+    authoritative Snapshot trading calendar used for the momentum rebalance
+    schedule."""
     kind = spec.signal.get("kind")
     if kind == "buy_hold":
         symbol = spec.signal.get("symbol", spec.universe[0])
@@ -45,8 +47,11 @@ def build_signal(spec: StrategySpec, research: pd.DataFrame,
             research, ma_period=ma_period, max_positions=max_positions
         )
     if kind == "momentum_rotation":
+        if calendar_dates is None:
+            calendar_dates = research["date"]
         return momentum_rotation_signal(
             research,
+            calendar_dates=calendar_dates,
             momentum_days=int(params.get("momentum_days")),
             ma_filter=int(params.get("ma_filter", 0)),
             top_k=int(params.get("top_k")),

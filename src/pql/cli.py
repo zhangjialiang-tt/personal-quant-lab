@@ -369,9 +369,14 @@ def _cmd_validate_run(args) -> int:
 
 
 def _cmd_validate_candidate(args) -> int:
+    from .registry.budget import BudgetError
     from .validation.pipeline import validate_candidate
 
-    report = validate_candidate(".", args.strategy, data_root="data")
+    try:
+        report = validate_candidate(".", args.strategy, data_root="data")
+    except BudgetError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     print(f"candidate validation: {args.strategy}")
     print(f"  overall: {report['overall']}")
     print(f"  strategy_state: {report['strategy_state']}")

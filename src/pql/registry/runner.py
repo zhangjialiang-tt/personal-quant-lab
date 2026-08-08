@@ -104,7 +104,8 @@ def execute_run(
         start=in_sample[0], end=in_sample[1],
     )
     research = ds.research_frame()
-    intent: TradingIntent = build_signal(spec, research, effective)
+    intent: TradingIntent = build_signal(spec, research, effective,
+                                         calendar_dates=ds.calendar_dates())
 
     timing = TimingContract(
         execution_bar=int(spec.timing.get("execution_bar", 1)),

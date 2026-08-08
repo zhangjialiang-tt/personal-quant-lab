@@ -28,7 +28,8 @@ def _research_trends(daily: dict[str, float], n: int = 36) -> pd.DataFrame:
 
 
 def _signal(research, **kw):
-    return momentum_rotation_signal(research, momentum_days=5, top_k=2, **kw)
+    return momentum_rotation_signal(research, calendar_dates=research["date"],
+                                    momentum_days=5, top_k=2, **kw)
 
 
 def test_returns_target_weight_intent():
@@ -90,7 +91,7 @@ def test_rebalance_only_first_trading_day_and_nan_elsewhere():
 def test_top_k_equal_weight():
     r = _research_trends({A: 0.04, B: 0.03, C: 0.02, D: 0.01}, n=40)
     for k in (1, 2, 3):
-        sig = momentum_rotation_signal(r, momentum_days=5, top_k=k)
+        sig = momentum_rotation_signal(r, calendar_dates=r["date"], momentum_days=5, top_k=k)
         written = sig.weights.dropna(how="all")
         row = written.iloc[-1]
         held = row[row > 0]
@@ -100,7 +101,7 @@ def test_top_k_equal_weight():
 
 def test_single_eligible_gets_full_weight():
     r = _research_trends({A: 0.03, B: -0.01, C: -0.02, D: -0.03}, n=40)
-    sig = momentum_rotation_signal(r, momentum_days=5, top_k=3)
+    sig = momentum_rotation_signal(r, calendar_dates=r["date"], momentum_days=5, top_k=3)
     written = sig.weights.dropna(how="all")
     row = written.iloc[-1]
     assert row[A] == pytest.approx(1.0)
@@ -110,7 +111,7 @@ def test_single_eligible_gets_full_weight():
 def test_effective_k_respects_max_positions_ceiling():
     r = _research_trends({A: 0.05, B: 0.04, C: 0.03, D: 0.02}, n=40)
     # top_k=3 but max_positions=2 -> effective_k=2
-    sig = momentum_rotation_signal(r, momentum_days=5, top_k=3, max_positions=2)
+    sig = momentum_rotation_signal(r, calendar_dates=r["date"], momentum_days=5, top_k=3, max_positions=2)
     row = sig.weights.dropna(how="all").iloc[-1]
     assert len(row[row > 0]) == 2
 
@@ -126,7 +127,7 @@ def test_deterministic_tie_break_by_symbol():
     research = pd.DataFrame(rows)
     # shuffle input order to prove result is order-independent
     research = research.sample(frac=1.0, random_state=7).reset_index(drop=True)
-    sig = momentum_rotation_signal(research, momentum_days=5, top_k=1)
+    sig = momentum_rotation_signal(research, calendar_dates=research["date"], momentum_days=5, top_k=1)
     row = sig.weights.dropna(how="all").iloc[-1]
     held = row[row > 0].index.tolist()
     assert held == [A]
@@ -134,14 +135,36 @@ def test_deterministic_tie_break_by_symbol():
 
 def test_future_data_invariance():
     research = _research_trends({A: 0.02, B: 0.01, C: 0.015, D: 0.005}, n=40)
-    full = momentum_rotation_signal(research, momentum_days=5, top_k=2)
+    full = momentum_rotation_signal(research, calendar_dates=research["date"], momentum_days=5, top_k=2)
     dates = pd.to_datetime(research["date"].unique())
     for t in dates[10:20:2]:
         trunc = research[research["date"] <= t]
-        sig = momentum_rotation_signal(trunc, momentum_days=5, top_k=2)
+        sig = momentum_rotation_signal(trunc, calendar_dates=trunc["date"], momentum_days=5, top_k=2)
         for sym in full.weights.columns:
             fv = full.weights.loc[t, sym]
             sv = sig.weights.loc[t, sym]
             if pd.isna(fv) and pd.isna(sv):
                 continue
             assert fv == pytest.approx(sv, rel=1e-9) if pd.notna(fv) else np.isnan(sv)
+
+
+def test_rebalance_schedule_comes_from_calendar_not_prices():
+    """Frozen: rebalance = first actual trading day of the month from the
+    Snapshot CALENDAR. If that day is missing in the price data, the schedule is
+    NOT silently redefined to the next available price day."""
+    all_calendar = pd.to_datetime(["2024-05-31", "2024-06-03", "2024-06-04",
+                                   "2024-06-05", "2024-07-01", "2024-07-02"])
+    price_dates = pd.to_datetime(["2024-05-31", "2024-06-04", "2024-06-05",
+                                  "2024-07-01", "2024-07-02"])  # 6/3 missing
+    rows = []
+    for sym in (A, B):
+        for d in price_dates:
+            rows.append({"date": d, "symbol": sym, "close_adj": 100.0})
+    research = pd.DataFrame(rows)
+    sig = momentum_rotation_signal(research, calendar_dates=all_calendar,
+                                   momentum_days=1, top_k=2)
+    # June's scheduled rebalance is 6/3 (calendar); 6/3 has no price so it
+    # cannot execute, and 6/4 is NOT redefined as the first trading day.
+    assert sig.weights.loc["2024-06-04"].isna().all()  # no rebalance at 6/4
+    assert not sig.weights.loc["2024-05-31"].isna().all()  # May decision written
+    assert not sig.weights.loc["2024-07-01"].isna().all()  # July decision written

@@ -45,8 +45,9 @@ def load_context(repo_root: str | Path, strategy: str, data_root: str | Path = "
 
 
 def build_intent(spec, params: dict[str, Any], ds: DatasetView):
-    """Build the PIT signal over the full in-sample research frame."""
-    return build_signal(spec, ds.research_frame(), params)
+    """Build the PIT signal over the full in-sample research frame, using the
+    snapshot's authoritative trading calendar for the rebalance schedule."""
+    return build_signal(spec, ds.research_frame(), params, calendar_dates=ds.calendar_dates())
 
 
 def run_window(

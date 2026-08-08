@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
 from pql.validation.pipeline import validate_candidate
 
@@ -99,3 +100,32 @@ def test_holdout_access_log_unchanged(tmp_path):
     after = log.read_bytes() if log.exists() else None
     assert before == after  # still absent (candidate pipeline never consumes holdout)
     assert report["holdout_untouched"] is True
+
+
+def test_budget_preflight_blocks_all_backtests(monkeypatch, tmp_path):
+    """A grid that exceeds the research budget must abort with ZERO backtests
+    and no SELECT runs (M5 review P0)."""
+    from pql.registry.budget import BudgetError
+    from tests.m5_fixture import make_momentum_repo
+    root, data_root = make_momentum_repo(tmp_path)  # grid = 4 configs
+    spec_path = root / "strategies" / "test_momentum_v1.yaml"
+    spec_path.write_text(
+        spec_path.read_text(encoding="utf-8").replace(
+            "max_total_selection_runs: 50", "max_total_selection_runs: 1"),
+        encoding="utf-8")
+
+    calls = {"n": 0}
+
+    def _fake_run_window(*a, **k):
+        calls["n"] += 1
+        return _fake_result()
+
+    monkeypatch.setattr("pql.validation.pipeline.run_window", _fake_run_window)
+    with pytest.raises(BudgetError):
+        validate_candidate(root, "test_momentum_v1", data_root=data_root,
+                           report_root=root / "reports",
+                           experiments_root=root / "experiments", persist=False)
+    assert calls["n"] == 0  # no backtest executed
+    # no experiment / SELECT runs written
+    exp_manifests = list((root / "experiments").glob("EXP-*/manifest.yaml"))
+    assert exp_manifests == []
