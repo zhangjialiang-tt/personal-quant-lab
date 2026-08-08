@@ -1,0 +1,8 @@
+{
+  "regime_combo": "UP|LOW_VOL|LOW_LIQ",
+  "n_days": 2,
+  "sharpe": 11.44828793430686,
+  "annual_vol": 0.12320867436274521,
+  "mean_daily_return": 0.005597334841702217,
+  "status": "ok"
+}

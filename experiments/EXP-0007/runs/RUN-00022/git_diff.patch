@@ -1,0 +1,25 @@
+diff --git a/src/pql/validation/kill.py b/src/pql/validation/kill.py
+index e44c470..ff7e383 100644
+--- a/src/pql/validation/kill.py
++++ b/src/pql/validation/kill.py
+@@ -346,6 +346,20 @@ def _shift_rebalance_days(calendar_dates, rebal_days) -> list:
+ 
+ def _k06(spec, cost, ds, data_root) -> dict:
+     is_start, is_end = spec.windows["in_sample"]
++    kind = spec.signal.get("kind")
++    if kind != "momentum_rotation":
++        # No rebalance schedule to shift for this signal kind (trend/buy_hold
++        # rebalance continuously via the signal). K06 is not gate-relevant here.
++        return _family("K06", "shift_rebalance", [{
++            "variant_id": "K06",
++            "variant_name": "shift_rebalance",
++            "parameters": {"rebalance_shift_days": 1},
++            "metrics": {},
++            "result": "NOT_APPLICABLE",
++            "gate_relevant": False,
++            "note": f"no rebalance schedule for signal kind {kind!r}",
++            "equity": None, "orders": None, "run_ref": None,
++        }])
+     cal = ds.calendar_dates()
+     base_rebal = first_trading_day_of_month(cal)
+     shifted = _shift_rebalance_days(cal, base_rebal)

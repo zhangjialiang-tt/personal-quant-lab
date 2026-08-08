@@ -4,9 +4,14 @@
   "dataset_version": "market-20260808-v1",
   "dataset_source": "synthetic",
   "market_evidence": false,
+  "candidate_params": {
+    "momentum_days": 120,
+    "ma_filter": 0,
+    "top_k": 2
+  },
   "gate_version": "gates-2026-v1",
   "gate_content_sha256": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
-  "code_commit": "20bf7a7ac46f0f56c509bf63b6d933de8960e567",
+  "code_commit": "ee2ab2d146f6b78aebb857e1ee310ad18ce1c639",
   "code_dirty": false,
   "config_hashes": {
     "strategies\\etf_momentum_v1.yaml": "bc0d5e2d8a9e8e7dc541e816b9cca3785c50e44cc74a70395621d123f01bb3d5",
@@ -24,6 +29,14 @@
     "top_k": 2
   },
   "effective_trial_count": 18,
+  "provenance": {
+    "dataset_version": "market-20260808-v1",
+    "dataset_source": "synthetic",
+    "code_commit": "ee2ab2d146f6b78aebb857e1ee310ad18ce1c639",
+    "code_dirty": false,
+    "gate_version": "gates-2026-v1",
+    "config_sha256": "2adad2a563accee006fd0ec24fbd963a886113660e8e4fc0496566e40cee0d13"
+  },
   "holdout_access_before": {
     "exists": false,
     "lines": 0,
@@ -35,7 +48,7 @@
     "sha256": null
   },
   "holdout_untouched": true,
-  "experiment_id": "EXP-0003",
+  "experiment_id": "EXP-0005",
   "is_baseline": {
     "cagr": 0.34840715773102127,
     "annual_vol": 0.15163407274078453,
@@ -280,20 +293,517 @@
     "liq_window": 20,
     "rate_regime": "not_implemented_v0.1"
   },
-  "m6_pending": {
-    "cost_stress": "PENDING_M6",
-    "exec_stress": "PENDING_M6",
-    "bootstrap": "PENDING_M6",
-    "deflated_sharpe": "PENDING_M6",
-    "kill_tests": "PENDING_M6"
+  "cost_stress": {
+    "variants": [
+      {
+        "multiplier": 1,
+        "sharpe": 2.048133177238671,
+        "max_drawdown": -0.12103675806719838,
+        "cagr": 0.34840715773102127,
+        "fee_rate": 0.0003,
+        "slippage": 0.001
+      },
+      {
+        "multiplier": 2,
+        "sharpe": 2.0151767352709866,
+        "max_drawdown": -0.12293920117361656,
+        "cagr": 0.34166751208181,
+        "fee_rate": 0.0006,
+        "slippage": 0.002
+      },
+      {
+        "multiplier": 3,
+        "sharpe": 1.9816692381724421,
+        "max_drawdown": -0.12509131254285155,
+        "cagr": 0.33494725369049827,
+        "fee_rate": 0.0009,
+        "slippage": 0.003
+      }
+    ],
+    "cost_2x_sharpe": 2.0151767352709866
+  },
+  "execution_stress": {
+    "variants": [
+      {
+        "variant_id": "E01",
+        "variant_name": "T+2 execution",
+        "parameters": {
+          "execution_bar": 2
+        },
+        "sharpe": 1.9197621944787309,
+        "max_drawdown": -0.12202926513064272,
+        "cagr": 0.32295449433943135,
+        "valuation_mode": "execution_revaluation"
+      },
+      {
+        "variant_id": "E02",
+        "variant_name": "open execution price",
+        "parameters": {
+          "execution_price": "open"
+        },
+        "sharpe": 2.1045527202876873,
+        "max_drawdown": -0.11972792947880395,
+        "cagr": 0.3606933840496034,
+        "valuation_mode": "execution_revaluation"
+      },
+      {
+        "variant_id": "E03",
+        "variant_name": "slippage +0.002",
+        "parameters": {
+          "slippage_delta": 0.002
+        },
+        "sharpe": 1.997192760360342,
+        "max_drawdown": -0.12409942546237507,
+        "cagr": 0.33804441721414213,
+        "valuation_mode": "execution_revaluation"
+      },
+      {
+        "variant_id": "E04",
+        "variant_name": "miss 5% seed 7",
+        "parameters": {
+          "miss_rate": 0.05,
+          "seed": 7
+        },
+        "sharpe": 2.0807401799059853,
+        "max_drawdown": -0.12103675806719838,
+        "cagr": 0.3596454323923868,
+        "valuation_mode": "execution_revaluation"
+      },
+      {
+        "variant_id": "E05",
+        "variant_name": "T+1 / open execution price",
+        "parameters": {
+          "execution_bar": 1,
+          "execution_price": "open"
+        },
+        "sharpe": 2.1045527202876873,
+        "max_drawdown": -0.11972792947880395,
+        "cagr": 0.3606933840496034,
+        "valuation_mode": "execution_revaluation"
+      }
+    ],
+    "worst_exec_max_drawdown": -0.12409942546237507,
+    "gate_input_variant": "worst across required E01-E05 variants (M6-002)"
+  },
+  "bootstrap": {
+    "n": 1283,
+    "block_len": 11,
+    "R": 1000,
+    "seed": 42,
+    "sharpe": {
+      "p05": 1.3566976644335706,
+      "p50": 2.047824530534476,
+      "p95": 2.7865315127893315,
+      "ci95": [
+        1.2252,
+        2.876237
+      ]
+    },
+    "cagr": {
+      "p05": 0.21335998391361474,
+      "p50": 0.345833368406424,
+      "p95": 0.5072377396522048,
+      "ci95": [
+        0.191236,
+        0.527992
+      ]
+    },
+    "max_drawdown": {
+      "p05": -0.20764578890342367,
+      "p50": -0.13014944711838616,
+      "p95": -0.08851772714745498,
+      "ci95": [
+        -0.224715,
+        -0.084344
+      ]
+    }
+  },
+  "deflated_sharpe": {
+    "dsr_probability": 0.9975076490191391,
+    "observed_sharpe": 2.048133177238671,
+    "daily_sharpe": 0.12902026283128806,
+    "n_observations": 1283,
+    "skew": 0.13213230352410382,
+    "kurtosis": 0.7535785649550224,
+    "n_trials": 18,
+    "annualization": 252,
+    "effective_trial_count": 18,
+    "trial_selection_keys": [
+      "ma_filter=0;momentum_days=120;top_k=1",
+      "ma_filter=0;momentum_days=120;top_k=2",
+      "ma_filter=0;momentum_days=120;top_k=3",
+      "ma_filter=0;momentum_days=180;top_k=1",
+      "ma_filter=0;momentum_days=180;top_k=2",
+      "ma_filter=0;momentum_days=180;top_k=3",
+      "ma_filter=0;momentum_days=60;top_k=1",
+      "ma_filter=0;momentum_days=60;top_k=2",
+      "ma_filter=0;momentum_days=60;top_k=3",
+      "ma_filter=200;momentum_days=120;top_k=1",
+      "ma_filter=200;momentum_days=120;top_k=2",
+      "ma_filter=200;momentum_days=120;top_k=3",
+      "ma_filter=200;momentum_days=180;top_k=1",
+      "ma_filter=200;momentum_days=180;top_k=2",
+      "ma_filter=200;momentum_days=180;top_k=3",
+      "ma_filter=200;momentum_days=60;top_k=1",
+      "ma_filter=200;momentum_days=60;top_k=2",
+      "ma_filter=200;momentum_days=60;top_k=3"
+    ],
+    "candidate_selection_key": "ma_filter=0;momentum_days=120;top_k=2"
+  },
+  "kill_tests": {
+    "families": [
+      {
+        "family_id": "K01",
+        "family_name": "drop_best_year",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 1,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K01",
+            "variant_name": "drop_best_year=2022",
+            "parameters": {
+              "best_year": 2022
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.2963944200199562,
+              "sharpe": 1.8598325132483053,
+              "max_drawdown": -0.12103675806719782
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K02",
+        "family_name": "drop_best_trades",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 1,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K02_ATTRIBUTION",
+            "variant_name": "drop_best_trades (attribution)",
+            "parameters": {
+              "mode": "ATTRIBUTION_TEST",
+              "k": 4
+            },
+            "result": "PASSED",
+            "gate_relevant": false,
+            "metrics": {
+              "cagr": 0.16752006220465843,
+              "sharpe": 0.7013937349062569,
+              "max_drawdown": -0.30393146837173124
+            }
+          },
+          {
+            "variant_id": "K02_COUNTERFACTUAL",
+            "variant_name": "drop_best_trades (counterfactual)",
+            "parameters": {
+              "mode": "COUNTERFACTUAL_TEST",
+              "k": 4
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.3452390620521828,
+              "annual_vol": 0.15157636080145173,
+              "sharpe": 2.033318269397988,
+              "max_drawdown": -0.12103675806719827,
+              "calmar": 2.8523488861169755,
+              "n_trades": 39,
+              "turnover": 0.015784172233411567,
+              "exposure": 0.8911790258864698,
+              "win_rate": 0.717948717948718
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K03",
+        "family_name": "universe_loo",
+        "family_result": "KILLED",
+        "killed_fraction": 0.25,
+        "gate_relevant_variant_count": 4,
+        "killed_variant_count": 1,
+        "variants": [
+          {
+            "variant_id": "K03_510300.SH",
+            "variant_name": "universe_loo drop 510300.SH",
+            "parameters": {
+              "drop_symbol": "510300.SH"
+            },
+            "result": "KILLED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": -0.11077120833623588,
+              "annual_vol": 0.12164456932313084,
+              "sharpe": -0.9040341297306406,
+              "max_drawdown": -0.45856915637049067,
+              "calmar": -0.24155834904591963,
+              "n_trades": 19,
+              "turnover": 0.018729142208030382,
+              "exposure": 0.4967400783931937,
+              "win_rate": 0.21052631578947367
+            }
+          },
+          {
+            "variant_id": "K03_510500.SH",
+            "variant_name": "universe_loo drop 510500.SH",
+            "parameters": {
+              "drop_symbol": "510500.SH"
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.4618309841318249,
+              "annual_vol": 0.1587517629646513,
+              "sharpe": 2.472660184200539,
+              "max_drawdown": -0.12103675806719849,
+              "calmar": 3.815625860330963,
+              "n_trades": 26,
+              "turnover": 0.009669857300799537,
+              "exposure": 0.8999835255108024,
+              "win_rate": 0.7692307692307693
+            }
+          },
+          {
+            "variant_id": "K03_518880.SH",
+            "variant_name": "universe_loo drop 518880.SH",
+            "parameters": {
+              "drop_symbol": "518880.SH"
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.3954886085373275,
+              "annual_vol": 0.15567141742736373,
+              "sharpe": 2.2197193982113848,
+              "max_drawdown": -0.12103675806719838,
+              "calmar": 3.2675082747817505,
+              "n_trades": 34,
+              "turnover": 0.014212163445363427,
+              "exposure": 0.8996173792256863,
+              "win_rate": 0.7352941176470589
+            }
+          },
+          {
+            "variant_id": "K03_511010.SH",
+            "variant_name": "universe_loo drop 511010.SH",
+            "parameters": {
+              "drop_symbol": "511010.SH"
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.44428699987363807,
+              "annual_vol": 0.15880816884564172,
+              "sharpe": 2.395666189799375,
+              "max_drawdown": -0.11972792947880395,
+              "calmar": 3.710805004376965,
+              "n_trades": 29,
+              "turnover": 0.011653082744058107,
+              "exposure": 0.8998682397816562,
+              "win_rate": 0.7241379310344828
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K04",
+        "family_name": "delay_execution",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 1,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K04",
+            "variant_name": "execution_bar=1+1",
+            "parameters": {
+              "execution_bar": 2
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.32295449433943135,
+              "annual_vol": 0.15185472093851096,
+              "sharpe": 1.9197621944787309,
+              "max_drawdown": -0.12202926513064272,
+              "calmar": 2.646533140994343,
+              "n_trades": 39,
+              "turnover": 0.015869332983376692,
+              "exposure": 0.8989393811767765,
+              "win_rate": 0.717948717948718
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K05",
+        "family_name": "cost_x2",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 1,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K05",
+            "variant_name": "cost_x2",
+            "parameters": {
+              "multiplier": 2
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.34166751208181,
+              "annual_vol": 0.15162378783210745,
+              "sharpe": 2.0151767352709866,
+              "max_drawdown": -0.12293920117361656,
+              "calmar": 2.779158387399167,
+              "n_trades": 40,
+              "turnover": 0.01580951668207684,
+              "exposure": 0.8998642147919068,
+              "win_rate": 0.725
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K06",
+        "family_name": "shift_rebalance",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 1,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K06",
+            "variant_name": "rebalance_shifted_1_trading_day",
+            "parameters": {
+              "rebalance_shift_days": 1
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.3276539606211637,
+              "annual_vol": 0.146783797918587,
+              "sharpe": 2.0051228103814487,
+              "max_drawdown": -0.11972792947880395,
+              "calmar": 2.736654363334413,
+              "n_trades": 44,
+              "turnover": 0.01590004186608118,
+              "exposure": 0.8982844862089319,
+              "win_rate": 0.75
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K07",
+        "family_name": "perturb_params",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 2,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K07_momentum_days-10%",
+            "variant_name": "perturb momentum_days -10%",
+            "parameters": {
+              "momentum_days": 108.0
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.35963158049239285,
+              "annual_vol": 0.14687150393558696,
+              "sharpe": 2.1662296952223703,
+              "max_drawdown": -0.11972792947880395,
+              "calmar": 3.0037400801795395,
+              "n_trades": 45,
+              "turnover": 0.015253035375081814,
+              "exposure": 0.8997644453848549,
+              "win_rate": 0.7777777777777778
+            }
+          },
+          {
+            "variant_id": "K07_momentum_days+10%",
+            "variant_name": "perturb momentum_days +10%",
+            "parameters": {
+              "momentum_days": 132.0
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.36987333684185786,
+              "annual_vol": 0.15007242934742618,
+              "sharpe": 2.173234272941531,
+              "max_drawdown": -0.12103675806719849,
+              "calmar": 3.05587610531098,
+              "n_trades": 41,
+              "turnover": 0.01498195286862308,
+              "exposure": 0.8821549919175333,
+              "win_rate": 0.7317073170731707
+            }
+          }
+        ]
+      },
+      {
+        "family_id": "K08",
+        "family_name": "shift_start",
+        "family_result": "PASSED",
+        "killed_fraction": 0.0,
+        "gate_relevant_variant_count": 1,
+        "killed_variant_count": 0,
+        "variants": [
+          {
+            "variant_id": "K08",
+            "variant_name": "start_shifted_60_trading_days",
+            "parameters": {
+              "shift_trading_days": 60,
+              "start": "2020-03-26"
+            },
+            "result": "PASSED",
+            "gate_relevant": true,
+            "metrics": {
+              "cagr": 0.3683274188957848,
+              "annual_vol": 0.15524858959999208,
+              "sharpe": 2.0985896587749373,
+              "max_drawdown": -0.12103675806719838,
+              "calmar": 3.0431038039807143,
+              "n_trades": 40,
+              "turnover": 0.016578786899826076,
+              "exposure": 0.9438554358244107,
+              "win_rate": 0.725
+            }
+          }
+        ]
+      }
+    ],
+    "killed_family_count": 1
+  },
+  "code_clean": {
+    "code_dirty": false,
+    "pass": true
   },
   "gate_results": {
     "min_is_sharpe": true,
     "max_drawdown_floor": true,
     "walkforward": true,
     "param_stability": true,
-    "time_windows_min_pos_cagr_frac": true
+    "time_windows_min_pos_cagr_frac": true,
+    "cost_2x_min_sharpe": true,
+    "exec_stress_max_drawdown_floor": true,
+    "bootstrap_sharpe_p05_min": true,
+    "deflated_sharpe_min": true,
+    "max_kill_families_killed": true,
+    "require_code_clean": true
   },
-  "overall": "INCOMPLETE_PENDING_M6",
-  "created": "2026-08-08T12:14:56+08:00"
+  "overall": "PASS",
+  "ready_for_candidate_freeze": true,
+  "created": "2026-08-08T14:43:23+08:00"
 }
