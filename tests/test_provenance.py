@@ -76,6 +76,30 @@ def test_untracked_out_of_scope_not_dirty(tmp_path):
     assert st.code_dirty is False
 
 
+def test_staged_tracked_modification_dirty_with_patch(tmp_path):
+    """git add (staged) must still be recorded as dirty with a reproducible
+    patch; `git diff` alone would silently miss it (M4 review P1)."""
+    root = _init_repo(Path(tmp_path))
+    (root / "src" / "pql" / "mod.py").write_text("x = 3\n", encoding="utf-8")
+    _git(root, "add", "src/pql/mod.py")  # STAGED, not committed
+    st = git_state(root / "experiments")
+    assert st.code_dirty is True
+    assert "mod.py" in st.patch
+    assert "x = 3" in st.patch
+    assert st.patch_sha256 == hashlib.sha256(st.patch.encode()).hexdigest()
+
+
+def test_staged_and_unstaged_both_captured(tmp_path):
+    root = _init_repo(Path(tmp_path))
+    f = root / "src" / "pql" / "mod.py"
+    f.write_text("x = 4\n", encoding="utf-8")
+    _git(root, "add", "src/pql/mod.py")  # staged x=4
+    f.write_text("x = 5\n", encoding="utf-8")  # unstaged x=5 on top
+    st = git_state(root / "experiments")
+    assert st.code_dirty is True
+    assert "x = 4" in st.patch and "x = 5" in st.patch
+
+
 def test_dirty_untracked_unreadable_raises(tmp_path, monkeypatch):
     root = _init_repo(Path(tmp_path))
     (root / "src" / "pql" / "locked.py").write_text("x = 1\n", encoding="utf-8")

@@ -126,6 +126,32 @@ def test_budget_message_directs_new_hypothesis(tmp_path):
         check_would_exceed(spec, tmp_path, {"ma_period": 200})
 
 
+def test_budget_exceed_blocks_backtest_execution(monkeypatch, tmp_path):
+    """A budget-exceed SELECT must be rejected BEFORE the backtest engine runs:
+    execute_run() is never invoked (orchestration gate, M4 review P1)."""
+    from pql.registry.runner import run_pipeline
+
+    spec = _spec(max_total=1)
+    write_manifest(tmp_path, experiment_id="EXP-0001", strategy=spec.name)
+    _add_run(tmp_path, "EXP-0001", spec.name, {"ma_period": 150})  # cap 1 reached
+
+    monkeypatch.setattr("pql.registry.runner.load_spec", lambda _p: spec)
+    called = {"n": 0}
+
+    def _fake_execute(**kwargs):  # pragma: no cover - must not be reached
+        called["n"] += 1
+        raise AssertionError("execute_run must not be called when budget is exceeded")
+
+    monkeypatch.setattr("pql.registry.runner.execute_run", _fake_execute)
+    with pytest.raises(BudgetError):
+        run_pipeline(
+            repo_root_path=tmp_path, experiments_root=tmp_path,
+            strategy=spec.name, params={"ma_period": 200},
+            experiment_id="EXP-0001",
+        )
+    assert called["n"] == 0
+
+
 def test_lineage_dedup_across_vN(tmp_path):
     # s_v1 uses 2 distinct trials; s_v2 shares the lineage and must NOT reset
     spec_v2 = _spec(name="s_v2", max_total=2)

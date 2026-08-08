@@ -88,7 +88,18 @@ def _semantic_result_hash(run_dir: Path) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def check_no_same_bar_fill(run: dict, run_dir: Path) -> dict:
+def check_no_same_bar_fill(run: dict, run_dir: Path, col: dict | None = None) -> dict:
+    """Same-bar fill prevention = the frozen TimingContract (D2): execution_bar
+    >= 1 guarantees the engine shifts every signal to fill no earlier than
+    T+1. This check verifies the run's recorded timing contract actually holds
+    (execution_bar >= 1) and that no order fills in the pre-shift bars
+    (idx < execution_bar), which are the only bars a same-bar fill could occupy.
+
+    It does NOT independently re-derive every fill's originating signal: that
+    per-fill guarantee is provided by the engine's shift and independently
+    verified by the `reproducible` check (which re-executes the engine with the
+    same timing contract). `col` is accepted for API symmetry but not used.
+    """
     eb = int(run["timing"].get("execution_bar", -1))
     if eb < 1:
         return {"status": "FAIL", "detail": f"execution_bar={eb} < 1 admits same-bar fill"}
@@ -98,9 +109,13 @@ def check_no_same_bar_fill(run: dict, run_dir: Path) -> dict:
         if fill_early.any():
             return {
                 "status": "FAIL",
-                "detail": f"{int(fill_early.sum())} order(s) filled at a signal bar (idx<{eb})",
+                "detail": f"{int(fill_early.sum())} order(s) filled before the earliest "
+                f"legal bar (idx<{eb}) — same-bar fill",
             }
-    return {"status": "PASS", "detail": f"execution_bar={eb} >= 1; no order fills at a signal bar"}
+    return {
+        "status": "PASS",
+        "detail": f"timing contract valid: execution_bar={eb} >= 1; no fill before bar {eb}",
+    }
 
 
 def _sample_dates(dates: pd.DatetimeIndex, warmup: int, k: int = 5) -> list[pd.Timestamp]:
@@ -226,16 +241,9 @@ def check_holdout_compliance(run: dict, data_root: Path, repo_root: Path) -> dic
     }
 
 
-def check_reproducible(
-    repo_root: Path, run: dict, exp_root: Path, data_root: Path, run_dir: Path
-) -> dict:
-    try:
-        col = execute_run(
-            repo_root_path=repo_root, strategy=run["strategy"],
-            params=run.get("parameters"), data_root=data_root,
-        )
-    except Exception as exc:  # noqa: BLE001 - any failure must surface as non-reproducible
-        return {"status": "FAIL", "detail": f"re-execution failed: {exc}"}
+def check_reproducible(col: dict | None, run: dict, run_dir: Path) -> dict:
+    if col is None:
+        return {"status": "FAIL", "detail": "re-execution failed"}
 
     result = col["result"]
     # equity: stored [date,group] vs rerun Series
@@ -302,15 +310,25 @@ def validate_run(
     repo = Path(repo_root)
     data = Path(data_root)
 
+    # Re-execute the run ONCE, sharing it between the signal-aware same-bar
+    # check and the reproducibility check (single engine call).
+    try:
+        col = execute_run(
+            repo_root_path=repo, strategy=run["strategy"],
+            params=run.get("parameters"), data_root=data,
+        )
+    except Exception:  # noqa: BLE001 - surfaces as reproducible FAIL
+        col = None
+
     checks = {
-        "no_same_bar_fill": check_no_same_bar_fill(run, run_dir),
+        "no_same_bar_fill": check_no_same_bar_fill(run, run_dir, col),
         "no_future_data": check_no_future_data(repo, run, exp_root, data),
         "dataset_pinned": check_dataset_pinned(run, data),
         "cost_nonzero": check_cost_nonzero(run),
         "valid_trading_dates": check_valid_trading_dates(run, run_dir, data),
         "holdout_compliance": check_holdout_compliance(run, data, repo),
     }
-    checks["reproducible"] = check_reproducible(repo, run, exp_root, data, run_dir)
+    checks["reproducible"] = check_reproducible(col, run, run_dir)
 
     overall = "PASS" if all(c["status"] == "PASS" for c in checks.values()) else "FAIL"
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from pql.backtest.engine import SignalIntent, run_backtest_impl
 from pql.schemas import CostModel, PortfolioConfig
@@ -95,3 +96,48 @@ def test_four_asset_trend_uses_one_million(tmp_path):
         SignalIntent(entries, exits), [A, B, C, D], TimingContract(), _Z, PC, ds
     )
     assert r.equity.iloc[0] == INIT  # 1M, not 4M
+
+
+def test_two_simultaneous_entries_allocate_equal_weight(tmp_path):
+    """Two symbols entering on the same bar must split the shared pool EQUALLY
+    (50/50), NOT 100%/0% (the from_signals default-size degenerate)."""
+    n = 6
+    ds = make_snapshot(
+        tmp_path,
+        {A: np.arange(100.0, 100.0 + n), B: np.arange(100.0, 100.0 + n)},
+        name="equal",
+    )
+    dates = ds.execution_frame()["date"].unique()
+    entries = pd.DataFrame(False, index=dates, columns=[A, B])
+    entries.iloc[0] = True  # both enter the same bar
+    exits = pd.DataFrame(False, index=dates, columns=[A, B])
+    r = run_backtest_impl(
+        SignalIntent(entries, exits), [A, B], TimingContract(), _Z, PC, ds
+    )
+    buys = r.orders[r.orders["side"] == 0]
+    assert len(buys) == 2  # BOTH symbols actually bought
+    sizes = sorted(buys["size"].tolist())
+    # each bought ~0.5 * INIT / 100 = 5000 shares (equal weight, not 10000/0).
+    # vectorbt fills a shared pool sequentially, so the last order ends slightly
+    # below the earlier one; assert "approximately equal" (same tolerance the
+    # frozen TargetWeightIntent targetpercent design accepts).
+    for s in sizes:
+        assert s == pytest.approx(0.5 * INIT / 100.0, rel=0.06)
+
+
+def test_four_simultaneous_entries_allocate_equal_quarter(tmp_path):
+    """Four symbols entering the same bar -> each gets 1/4 of the pool."""
+    n = 6
+    closes = {s: np.arange(100.0, 100.0 + n) for s in (A, B, C, D)}
+    ds = make_snapshot(tmp_path, closes, name="quarter")
+    dates = ds.execution_frame()["date"].unique()
+    entries = pd.DataFrame(False, index=dates, columns=[A, B, C, D])
+    entries.iloc[0] = True
+    exits = pd.DataFrame(False, index=dates, columns=[A, B, C, D])
+    r = run_backtest_impl(
+        SignalIntent(entries, exits), [A, B, C, D], TimingContract(), _Z, PC, ds
+    )
+    buys = r.orders[r.orders["side"] == 0]
+    assert len(buys) == 4
+    for _, o in buys.iterrows():
+        assert o["size"] == pytest.approx(0.25 * INIT / 100.0, rel=0.06)

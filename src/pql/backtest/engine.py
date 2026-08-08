@@ -97,25 +97,61 @@ def run_backtest_impl(
         ]
         entries = entries & has_price
         exits = exits & has_price
+
         # Multi-asset SignalIntent = ONE shared portfolio account (single
-        # init_cash pool), not N independent per-symbol portfolios. group_by +
-        # cash_sharing make vectorbt treat all columns as one portfolio whose
-        # equity is a single nav series starting at init_cash (M4 contract).
-        pf = vbt.Portfolio.from_signals(
-            close=raw_close,
-            price=order_price,
-            entries=entries.shift(n, fill_value=False),
-            exits=exits.shift(n, fill_value=False),
-            init_cash=portfolio_config.init_cash,
-            fees=cost_model.fee_rate,
-            slippage=cost_model.slippage,
-            freq="D",
-            direction="longonly",
-            group_by=True,
-            cash_sharing=True,
-        )
-        intent_kind = "signal"
-        valuation_mode = "signal_fill"
+        # init_cash pool), not N independent per-symbol portfolios.
+        #
+        # Allocation: with PortfolioConfig.weighting == "equal", the held set is
+        # allocated EQUAL portfolio weight (1/n_held). from_signals cannot
+        # express this for multiple simultaneous entries: its `size` is in
+        # shares (size_type='amount'), so two simultaneous entries degenerate to
+        # 100%/0% (the first symbol consumes the whole pool). We therefore route
+        # the multi-asset equal-weight case through the same from_orders
+        # targetpercent machinery as TargetWeightIntent.
+        # PLAN_DEVIATION (M4 review): multi-asset equal-weight SignalIntent no
+        # longer maps strictly to from_signals; documented in the M4 report.
+        val_price = raw_close.shift(1).fillna(raw_close)
+        if portfolio_config.weighting == "equal" and len(cols) > 1:
+            held = (entries.cumsum() - exits.cumsum()).clip(0, 1).astype(bool)
+            n_held = held.sum(axis=1).replace(0, 1.0)
+            weights = held.div(n_held, axis=0).where(held, 0.0)
+            # Rebalance only on bars where the held set CHANGED (an entry or an
+            # exit); elsewhere NaN -> from_orders holds the current allocation
+            # (pure enter/exit SignalIntent semantics, not a daily rotation).
+            weights = weights.where(entries | exits).where(has_price)
+            pf = vbt.Portfolio.from_orders(
+                close=raw_close,
+                price=order_price,
+                size=weights.shift(n),
+                size_type="targetpercent",
+                cash_sharing=True,
+                call_seq="auto",
+                group_by=True,
+                val_price=val_price,
+                init_cash=portfolio_config.init_cash,
+                fees=cost_model.fee_rate,
+                slippage=cost_model.slippage,
+                freq="D",
+                direction="longonly",
+            )
+            intent_kind = "signal"
+            valuation_mode = "equal_weight_signal"
+        else:
+            pf = vbt.Portfolio.from_signals(
+                close=raw_close,
+                price=order_price,
+                entries=entries.shift(n, fill_value=False),
+                exits=exits.shift(n, fill_value=False),
+                init_cash=portfolio_config.init_cash,
+                fees=cost_model.fee_rate,
+                slippage=cost_model.slippage,
+                freq="D",
+                direction="longonly",
+                group_by=True,
+                cash_sharing=True,
+            )
+            intent_kind = "signal"
+            valuation_mode = "signal_fill"
     else:
         weights = intent.weights.reindex(
             index=order_price.index, columns=order_price.columns

@@ -131,6 +131,7 @@ def execute_run(
         "dataset": ds,
         "result": result,
         "paths": paths,
+        "intent": intent,
     }
 
 
@@ -147,10 +148,20 @@ def run_pipeline(
     seed: int = 42,
 ) -> dict[str, Any]:
     """Execute one Run and persist it. If run_kind == SELECT the research budget
-    is enforced before execution (a budget-exceed SELECT is rejected)."""
+    is enforced BEFORE any backtest runs (a budget-exceed SELECT is rejected
+    without executing the engine)."""
     exp_root = Path(experiments_root)
+    repo = Path(repo_root_path)
+    # Resolve the effective params + enforce the SELECT budget gate FIRST, so a
+    # budget-exceed run never reaches the backtest engine (research governance).
+    spec = load_spec(repo / "strategies" / f"{strategy}.yaml")
+    effective = effective_params(spec, params)
+    validate_params(spec, effective)
+    if run_kind == "SELECT":
+        check_would_exceed(spec, exp_root, effective)
+
     col = execute_run(
-        repo_root_path=repo_root_path, strategy=strategy, params=params,
+        repo_root_path=repo, strategy=strategy, params=effective,
         data_root=data_root, seed=seed,
     )
     spec = col["spec"]
@@ -160,9 +171,6 @@ def run_pipeline(
     cost = col["cost"]
     ds = col["dataset"]
     paths = col["paths"]
-
-    if run_kind == "SELECT":
-        check_would_exceed(spec, exp_root, effective)
 
     gate = git_state(exp_root)
     deps = dependency_versions()

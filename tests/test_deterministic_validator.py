@@ -118,6 +118,19 @@ def test_no_same_bar_fill_fails_on_execution_bar_zero(tmp_path):
     assert res["status"] == "FAIL"
 
 
+def test_no_same_bar_fill_fails_on_pre_shift_fill(tmp_path):
+    """An order filling before the earliest legal bar (idx < execution_bar) is a
+    same-bar fill and must FAIL."""
+    run_dir = Path(tmp_path) / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([{"id": 0, "col": 0, "idx": 0, "size": 100.0,
+                   "price": 1.0, "fees": 0.0, "side": 0}]
+                 ).to_parquet(run_dir / "orders.parquet", index=False)
+    run = {"timing": {"execution_bar": 1, "execution_price": "close"}}
+    res = det.check_no_same_bar_fill(run, run_dir)
+    assert res["status"] == "FAIL"
+
+
 def test_cost_nonzero_fails_on_zero_fee(tmp_path):
     run = {"cost_config": {"fee_rate": 0.0}}
     assert det.check_cost_nonzero(run)["status"] == "FAIL"

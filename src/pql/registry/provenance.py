@@ -95,16 +95,21 @@ def git_state(experiments_root: str | Path) -> GitState:
     root = repo_root(experiments_root)
     commit, _ = _run_git(root, "rev-parse", "HEAD")
 
-    # tracked modifications under scope
-    diff_out, _ = _run_git(root, "diff", "--", *_DIRTY_SCOPE)
-    tracked_dirty = bool(diff_out.strip())
+    # tracked modifications under scope: BOTH unstaged (worktree) and staged
+    # (index). `git diff` alone silently drops staged changes, so a staged edit
+    # would otherwise be recorded as code_dirty=false (M4 review P1).
+    diff_unstaged, _ = _run_git(root, "diff", "--", *_DIRTY_SCOPE)
+    diff_staged, _ = _run_git(root, "diff", "--cached", "--", *_DIRTY_SCOPE)
+    tracked_dirty = bool(diff_unstaged.strip() or diff_staged.strip())
 
     untracked = _untracked_in_scope(root)
     code_dirty = tracked_dirty or bool(untracked)
 
     patch_parts: list[str] = []
-    if tracked_dirty:
-        patch_parts.append(diff_out.rstrip("\n"))
+    if diff_unstaged.strip():
+        patch_parts.append(diff_unstaged.rstrip("\n"))
+    if diff_staged.strip():
+        patch_parts.append(diff_staged.rstrip("\n"))
     for rel in untracked:
         fp = root / rel
         try:
