@@ -17,7 +17,7 @@ cost_config:
   fee_rate: 0.0003
   slippage: 0.001
 gate_version: gates-2026-v1
-code_commit: 'fda998704fa4848340423e14655224ba97c2e157
+code_commit: '40a37a8c5474ba3448dea6c503f8188dae460593
 
   '
 code_dirty: false
@@ -34,13 +34,13 @@ timing:
   execution_bar: 1
   execution_price: close
 metrics:
-  cagr: 0.6912482104831554
-  annual_vol: 0.16928924183355573
-  sharpe: 3.1914365266696136
-  max_drawdown: -0.11972792947880395
-  calmar: 5.773491728223118
-  n_trades: 0
-  turnover: 0.0007795950155763239
-  exposure: 0.8052959501557633
-  win_rate: .nan
-created: '2026-08-08T10:05:15+08:00'
+  cagr: 0.6881712732213168
+  annual_vol: 0.1687980772999821
+  sharpe: 3.1894244897922523
+  max_drawdown: -0.11940588045048384
+  calmar: 5.763294660405716
+  n_trades: 39
+  turnover: 0.0009078843460844887
+  exposure: 0.8041231541019616
+  win_rate: 0.1794871794871795
+created: '2026-08-08T10:29:11+08:00'

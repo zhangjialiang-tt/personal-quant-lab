@@ -6,7 +6,7 @@
   "checks": {
     "no_same_bar_fill": {
       "status": "PASS",
-      "detail": "execution_bar=1 >= 1; no order fills at a signal bar"
+      "detail": "timing contract valid: execution_bar=1 >= 1; no fill before bar 1"
     },
     "no_future_data": {
       "status": "PASS",

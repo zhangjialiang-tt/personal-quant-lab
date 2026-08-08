@@ -17,7 +17,7 @@ cost_config:
   fee_rate: 0.0003
   slippage: 0.001
 gate_version: gates-2026-v1
-code_commit: 'fda998704fa4848340423e14655224ba97c2e157
+code_commit: '40a37a8c5474ba3448dea6c503f8188dae460593
 
   '
 code_dirty: false
@@ -43,5 +43,4 @@ metrics:
   turnover: 0.0007795950155763239
   exposure: 0.8598130841121495
   win_rate: .nan
-created: '2026-08-08T10:06:37+08:00'
-semantic_result_hash: 4a16eb08e423b9e8d87fae9a3de94e98fa56c46b830ba4d539e196272a67dbfb
+created: '2026-08-08T10:30:02+08:00'
