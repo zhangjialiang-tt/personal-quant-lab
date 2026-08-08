@@ -95,6 +95,9 @@ def _holdout_scoring_window(res, holdout_start: str, holdout_end: str):
                 keep.append(False)
         hol_orders = orders[keep].copy()
         hol_orders["idx"] = new_idx
+        # explicit fill-date column for auditability (review #9 P1: persisted
+        # equity row 0 is the boundary anchor, so idx alone is off by one).
+        hol_orders["date"] = [hol_dates[i] for i in new_idx]
 
     # trades exiting in the holdout window
     trades = res.run_meta.get("trades")
@@ -238,6 +241,14 @@ def validate_final(
         asset_value=hol_asset, dates=hol_dates,
     )
 
+    # metrics use the local (0-based) order index; the PERSISTED artifact must
+    # align orders.idx to equity.parquet rows, whose row 0 is the boundary
+    # anchor, so artifact idx = local + 1 (review #9 P1).
+    artifact_orders = hol_orders
+    if hol_orders is not None and len(hol_orders):
+        artifact_orders = hol_orders.copy()
+        artifact_orders["idx"] = hol_orders["idx"] + 1
+
     gate = _final_gate(repo, _num(hol_metrics.get("sharpe")))
     overall = "PASS" if gate["pass"] else "FAIL"
 
@@ -275,7 +286,7 @@ def validate_final(
         timing={"execution_bar": timing.execution_bar, "execution_price": timing.execution_price},
         metrics=dict(hol_metrics),
         equity=hol_equity,
-        orders=hol_orders,
+        orders=artifact_orders,
     )
 
     from datetime import datetime

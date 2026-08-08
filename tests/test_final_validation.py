@@ -201,9 +201,15 @@ def test_final_run_artifacts_consistent_window(tmp_path):
     eq_dates = pd.to_datetime(equity["date"]).dt.normalize()
     assert eq_dates.min() >= pd.Timestamp("2024-12-31").normalize()  # boundary anchor
     assert eq_dates.max() <= pd.Timestamp(report["holdout_end"]).normalize()
-    # orders were re-indexed to the holdout window: idx is within holdout length
+    # orders were re-indexed to the holdout window AND aligned to the persisted
+    # equity rows: order.idx == equity row position and order.date == equity
+    # date at that row (review #9 P1). equity row 0 is the boundary anchor.
     if len(orders):
+        assert "date" in orders.columns
         assert int(orders["idx"].max()) < len(equity)
+        for o in orders.itertuples():
+            eq_date = pd.to_datetime(equity["date"]).iloc[int(o.idx)].normalize()
+            assert eq_date == pd.to_datetime(o.date).normalize()
     # order-derived metrics are populated (not degenerate 0/NaN)
     for key in ("n_trades", "turnover", "exposure", "win_rate"):
         assert key in metrics
