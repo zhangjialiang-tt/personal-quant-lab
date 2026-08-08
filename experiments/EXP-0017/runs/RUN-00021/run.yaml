@@ -1,0 +1,42 @@
+run_id: RUN-00021
+experiment_id: EXP-0017
+strategy: etf_trend_v1
+parameters:
+  ma_period: 200
+selection_key: ma_period=200
+run_kind: STRESS
+visible_to_researcher: true
+dataset_version: market-20260808-v1
+dataset_checksums:
+  prices.parquet: e7836d00a95e60266410f9e55c030a3f91b2a030278e39d2ca8c728382917fe7
+  calendar.parquet: 2dfae992293fb5d1e484dce7a3a69a154e92d7d040867cb9ae4da07f074a98be
+market_rule_version: cn-etf-2026-v1
+cost_model_version: cn-etf-cost-2026-v1
+cost_config:
+  version: cn-etf-cost-2026-v1
+  fee_rate: 0.0003
+  slippage: 0.001
+gate_version: gates-2026-v1
+code_commit: 74c0d06e7ccc9bdec08d6587c9e6d944012b9ba3
+code_dirty: false
+git_diff_sha256: ''
+config_sha256: f02ef7f640de75a2e51f5d561cf86799d6e5d96284b1faa74d6b352675c00847
+dependencies:
+  vectorbt: 1.1.0
+  pandas: 3.0.5
+  numpy: 2.4.6
+seed: 42
+timing:
+  execution_bar: 1
+  execution_price: close
+metrics:
+  cagr: 0.31778422990821187
+  annual_vol: 0.1475432389332707
+  sharpe: 1.9448845707117877
+  max_drawdown: -0.11972792947880384
+  calmar: 2.654219707060675
+  n_trades: 83
+  turnover: 0.055655256805008886
+  exposure: 0.842135959648624
+  win_rate: 0.5662650602409639
+created: '2026-08-08T16:00:10+08:00'

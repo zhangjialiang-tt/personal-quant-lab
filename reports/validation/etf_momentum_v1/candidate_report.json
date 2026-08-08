@@ -11,9 +11,9 @@
   },
   "gate_version": "gates-2026-v1",
   "gate_content_sha256": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
-  "code_commit": "c9883ac574b028f44460125e39c30a989ad003ef",
+  "code_commit": "74c0d06e7ccc9bdec08d6587c9e6d944012b9ba3",
   "code_dirty": false,
-  "code_tree_sha256": "56d6cd8c7fff43fa2d688f03df633a0857958f654f17ffd99b584fdc15e1ad10",
+  "code_tree_sha256": "da3192e7233976d011b12e54be4e548f2ab3c1285d01ff82d95e9d6c8223056b",
   "config_hashes": {
     "strategies\\etf_momentum_v1.yaml": "bc0d5e2d8a9e8e7dc541e816b9cca3785c50e44cc74a70395621d123f01bb3d5",
     "config\\validation_gates.yaml": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
@@ -24,6 +24,22 @@
     "config\\instruments\\511010.yaml": "70e495f0d13951a6d365e1d86d47bc19f2d4879522842c1d2fb9e9fd3c3b3e54",
     "config\\instruments\\518880.yaml": "de1f53e3f6276e9903e27ee6231e22117c6a2fade8cb6e418fea110e1a6ad38e"
   },
+  "validation_fingerprint": {
+    "spec_sha256": "bc0d5e2d8a9e8e7dc541e816b9cca3785c50e44cc74a70395621d123f01bb3d5",
+    "code_tree_sha256": "da3192e7233976d011b12e54be4e548f2ab3c1285d01ff82d95e9d6c8223056b",
+    "parameters": {
+      "momentum_days": 120,
+      "ma_filter": 0,
+      "top_k": 2
+    },
+    "gate_version": "gates-2026-v1",
+    "gate_config_sha256": "570595d84584cbf43ee3b5af5b4a983bde6e144dd742b10fa03fda51e7ae5f30",
+    "cost_config_sha256": "184051259d6c0eec06bf7b92fc7be577b9b81c0dab89025119187d52ef496931",
+    "market_rule_sha256": "bb6630f781c14d9d060f6f6e50bc42e663ed4dea17551ef91a92b298d38c449d",
+    "instrument_sha256": "4860957b2872ec3ef646d006a72ecbd44b0b4262af09aeb884713ff88b78bc8e",
+    "uv_lock_sha256": "4be44a05fbe07222abbf9705f198d2606f62671a2bd2b69d97c6ef7f014209a2",
+    "dataset_version": "market-20260808-v1"
+  },
   "selected_params": {
     "momentum_days": 120,
     "ma_filter": 0,
@@ -33,7 +49,7 @@
   "provenance": {
     "dataset_version": "market-20260808-v1",
     "dataset_source": "synthetic",
-    "code_commit": "c9883ac574b028f44460125e39c30a989ad003ef",
+    "code_commit": "74c0d06e7ccc9bdec08d6587c9e6d944012b9ba3",
     "code_dirty": false,
     "gate_version": "gates-2026-v1",
     "config_sha256": "2adad2a563accee006fd0ec24fbd963a886113660e8e4fc0496566e40cee0d13"
@@ -49,7 +65,7 @@
     "sha256": null
   },
   "holdout_untouched": true,
-  "experiment_id": "EXP-0014",
+  "experiment_id": "EXP-0016",
   "is_baseline": {
     "cagr": 0.34840715773102127,
     "annual_vol": 0.15163407274078453,
@@ -420,12 +436,12 @@
     }
   },
   "deflated_sharpe": {
-    "dsr_probability": 0.9975076490191391,
+    "dsr_probability": 0.9972708492847416,
     "observed_sharpe": 2.048133177238671,
     "daily_sharpe": 0.12902026283128806,
     "n_observations": 1283,
     "skew": 0.13213230352410382,
-    "kurtosis": 0.7535785649550224,
+    "kurtosis": 3.7535785649550224,
     "n_trials": 18,
     "annualization": 252,
     "effective_trial_count": 18,
@@ -806,5 +822,5 @@
   },
   "overall": "PASS",
   "ready_for_candidate_freeze": true,
-  "created": "2026-08-08T15:19:39+08:00"
+  "created": "2026-08-08T15:59:53+08:00"
 }

@@ -1,0 +1,9 @@
+experiment_id: EXP-0016
+strategy: etf_momentum_v1
+research_question: 'candidate development validation: etf_momentum_v1'
+experiment_config:
+  gate_version: gates-2026-v1
+decision: PENDING
+reason: ''
+decision_time: null
+created: '2026-08-08T15:59:23+08:00'
