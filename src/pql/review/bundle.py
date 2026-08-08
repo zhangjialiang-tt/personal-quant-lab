@@ -63,6 +63,7 @@ def _source_of_strategy(strategy: str, repo_root: Path) -> dict[str, str]:
 
 
 def _dataset_metadata(spec, data_root: Path) -> dict:
+    data_root = Path(data_root)
     manifest_path = data_root / "snapshots" / spec.dataset_version / "manifest.json"
     if not manifest_path.exists():
         return {"dataset_version": spec.dataset_version, "manifest": None}

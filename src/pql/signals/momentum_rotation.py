@@ -5,7 +5,8 @@ Absolute-momentum filter: momentum > 0. Optional MA filter: close_adj > MA(ma_fi
 when ma_filter > 0 (0 = disabled). Rolling windows use <= T data (never centered).
 
 Rebalance contract (D6): the FIRST actual trading day of each calendar month,
-derived from the research/trading dates — never a fixed 21-day cycle or month-end.
+derived from the research and trading dates — never a fixed 21-day cycle or
+month-end.
 
 On a rebalance day the full target vector is written: rank eligible assets by
 momentum DESCENDING (tie-break: canonical symbol ASCENDING), keep the top
