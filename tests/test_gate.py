@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 from pql.gate import GateError, is_ai_approver, promote
@@ -343,3 +344,27 @@ def test_human_name_with_ai_substring_not_rejected():
     assert is_ai_approver(" AI ") is True
     assert is_ai_approver("agent") is True
     assert is_ai_approver("zhangjl") is False
+
+def test_paper_to_live_stale_fingerprint_rejected(tmp_path):
+    """Review P1-2: if the PaperAccount state changes after the report was
+    generated, the report's paper_state_fingerprint is stale and the promotion
+    must be refused (no trust in a stale JSON)."""
+    from pql.gate_demo import run_gate_demo
+
+    sandbox = tmp_path / "sb"
+    res = run_gate_demo(sandbox=sandbox, print_steps=False)
+    assert res["DEMO_RESULT"] == "PASS"
+    root = Path(sandbox)
+    data_root = root / "data"
+    reg = root / "strategy_registry.yaml"
+    # tamper the persisted cash -> account state no longer matches the report
+    cash_path = data_root / "paper" / "demo_v1" / "cash.parquet"
+    df = pd.read_parquet(cash_path)
+    df.loc[df.index[-1], "cash"] += 1.0
+    df.to_parquet(cash_path, index=False)
+    before = _snapshot(reg, "demo_v1")
+    with pytest.raises(GateError):
+        promote(root, "demo_v1", "LIVE", "zhangjl", "live",
+                registry_path=reg, report_root=root / "reports",
+                experiments_root=root / "experiments", data_root=data_root)
+    assert _snapshot(reg, "demo_v1") == before  # zero mutation

@@ -64,6 +64,60 @@ def silent_failures(account: PaperAccount) -> int:
     return n
 
 
+def paper_state_fingerprint(account: PaperAccount) -> str:
+    """SHA256 over the FULL PaperAccount state the report is derived from:
+    executed order ledger, events, failures, persisted equity/cash/positions and
+    the replay window + init_cash. The promotion gate recomputes this from the
+    CURRENT account and compares to the report's recorded fingerprint, so a
+    stale report (state changed after report generation) is rejected (review
+    P1-2)."""
+    import hashlib
+    import json as _json
+
+    h = hashlib.sha256()
+
+    def _add(b: bytes) -> None:
+        h.update(b)
+
+    for o in account.executed_orders():
+        _add(_json.dumps(o, sort_keys=True, default=str).encode("utf-8"))
+    for e in account.read_events():
+        _add(_json.dumps(e, sort_keys=True, default=str).encode("utf-8"))
+    for f in account.read_failures():
+        _add(_json.dumps(f, sort_keys=True, default=str).encode("utf-8"))
+    for path in (account.equity_path, account.cash_path, account.positions_path):
+        if path.exists():
+            try:
+                df = pd.read_parquet(path)
+                if len(df):
+                    if "date" in df.columns:
+                        df = df.sort_values("date")
+                    _add(df.to_csv(index=False).encode())
+                else:
+                    _add(f"<empty:{path.name}>".encode())
+            except (ValueError, OSError, KeyError):  # pragma: no cover - defensive
+                _add(f"<missing:{path.name}>".encode())
+    meta = {}
+    if account.meta_path.exists():
+        try:
+            import json as _json2
+
+            meta = _json2.loads(account.meta_path.read_text(encoding="utf-8"))
+        except (ValueError, OSError):  # pragma: no cover - defensive
+            meta = {}
+    scope = {k: meta.get(k) for k in
+             ("replay_start", "replay_end", "last_persisted", "initial_cash", "init_cash")}
+    _add(_json.dumps(scope, sort_keys=True, default=str).encode("utf-8"))
+    return h.hexdigest()
+
+
+def market_evidence(source: str) -> bool:
+    """Explicit allowlist: only real-market adapters count as market evidence.
+    synthetic / fixture / unknown (including an empty source on error) are
+    FALSE (review P1-2: never fail open to market_evidence=true)."""
+    return source in ("akshare", "tushare")
+
+
 def load_paper_report(
     repo_root: str | Path,
     strategy: str,
@@ -147,12 +201,13 @@ def load_paper_report(
 
     gates_path = Path(repo) / "config" / "validation_gates.yaml"
     cost_path = Path(paths["cost"])
+    source = _dataset_source(repo, spec, data_root)
     report = {
         "strategy": strategy,
         "strategy_state": state,
         "dataset_version": spec.dataset_version,
-        "dataset_source": _dataset_source(repo, spec, data_root),
-        "market_evidence": _dataset_source(repo, spec, data_root) != "synthetic",
+        "dataset_source": source,
+        "market_evidence": market_evidence(source),
         "replay_start": meta.get("replay_start", ""),
         "replay_end": meta.get("replay_end", ""),
         "trading_days": trading_days,
@@ -160,6 +215,7 @@ def load_paper_report(
         "sim_orders": sim_orders,
         "unreconciled": unreconciled,
         "silent_failures": silent,
+        "paper_state_fingerprint": paper_state_fingerprint(account),
         "reconciliation": {
             "expected_cash": rec["expected_cash"],
             "actual_cash": rec["actual_cash"],

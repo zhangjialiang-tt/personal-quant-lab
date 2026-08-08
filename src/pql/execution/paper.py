@@ -110,7 +110,33 @@ class PaperAccount:
 
     # -- state ---------------------------------------------------------------
     def has_state(self) -> bool:
-        return self.orders_path.exists() and self.orders_path.stat().st_size > 0
+        """The account has persisted state (cash/equity/positions/meta), even if
+        zero orders executed. NOT gated on orders.jsonl — a replay that never
+        traded still persists daily state and must still be overlap-protected
+        (review P0-2)."""
+        return self.equity_path.exists() or self.cash_path.exists() \
+            or self.positions_path.exists()
+
+    def last_persisted_date(self) -> pd.Timestamp | None:
+        """The latest date the account's state was persisted (from meta or the
+        persisted equity/cash series). This is the true time boundary of the
+        account, NOT the last executed order (review P0-2)."""
+        if self.meta_path.exists():
+            try:
+                meta = json.loads(self.meta_path.read_text(encoding="utf-8"))
+                if meta.get("last_persisted"):
+                    return pd.Timestamp(meta["last_persisted"]).normalize()
+            except (ValueError, OSError):
+                pass
+        for path in (self.equity_path, self.cash_path, self.positions_path):
+            if path.exists():
+                try:
+                    df = pd.read_parquet(path)
+                    if len(df) and "date" in df:
+                        return pd.Timestamp(df["date"].max()).normalize()
+                except (ValueError, OSError):  # pragma: no cover - defensive
+                    continue
+        return None
 
     def current_positions(self) -> dict[str, float]:
         if not self.positions_path.exists():
@@ -149,20 +175,23 @@ class PaperAccount:
                 self.failures_path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
     def assert_no_overlap(self, requested_start: str) -> None:
-        """Fail-closed (M7-005): refuse a replay whose window overlaps already
-        executed paper state. Requires a fresh fixture/data root for re-runs."""
-        if not self.has_state():
+        """Fail-closed (M7-005 / review P0-2): refuse a replay whose requested
+        start is at or before the account's last PERSISTED state date. The true
+        boundary is the persisted state (meta/equity/cash), NOT the last executed
+        order — a replay with zero orders still persists daily state and must be
+        protected; resuming from a future state into a past window is forbidden.
+        Requires a fresh fixture/data root for re-runs."""
+        last = self.last_persisted_date()
+        if last is None:
             return
         start = pd.Timestamp(requested_start).normalize()
-        for o in self.executed_orders():
-            if pd.Timestamp(o.get("execution_date", "")).normalize() >= start:
-                raise ReplayOverlapError(
-                    f"paper account for {self.strategy} already has executed state "
-                    f"at/after requested start {requested_start} "
-                    "(execution_date "
-                    f"{o.get('execution_date')}); overlap would double-execute. "
-                    "Use a fresh fixture/data root (PLAN_CLARIFICATION M7-005)."
-                )
+        if start <= last:
+            raise ReplayOverlapError(
+                f"paper account for {self.strategy} already has persisted state "
+                f"through {last.date()}; requested start {requested_start} would "
+                "overlap (resuming from future state into the past). Use a fresh "
+                "fixture/data root (PLAN_CLARIFICATION M7-005)."
+            )
 
     # -- mutations -----------------------------------------------------------
     def persist(self, date, positions: dict[str, float], cash: float, equity: float) -> None:
@@ -261,16 +290,24 @@ def _execute_orders(
     positions: dict[str, float],
     cash: float,
     exec_price: dict[str, float | None],
-    val_close: dict[str, float],
+    exec_col: str,
 ):
     """Execute a batch of orders scheduled for `day`: build the risk context,
     run every risk rule, fill accepted BUY/SELL, log rejected / missing-price as
-    captured failures. Returns (positions, cash, n_sim, decision)."""
+    captured failures. Returns (positions, cash, n_sim, decision).
+
+    risk projection marks positions at the actual EXECUTION price (open or close
+    per the TimingContract), never the execution-day close for an open fill —
+    the close is not known at open (review P0-1). The expected-completed-bar
+    as-of likewise reflects whether the fill is at open (before the daily bar
+    completes) or at close.
+    """
     exec_prices = {s: p for s, p in exec_price.items() if p is not None}
     price_dates: dict[str, str] = {s: str(pd.Timestamp(day).date()) for s in exec_prices}
-    val_prices = dict(val_close)
-    expected_bar = latest_expected_completed_bar(
-        calendar, pd.Timestamp(day).normalize().strftime("%Y-%m-%d 15:00"))
+    # as-of boundary: an open fill happens before the daily bar completes
+    as_of = (pd.Timestamp(day).normalize().strftime("%Y-%m-%d %H:%M")
+             + (" 09:30" if exec_col == "open" else " 15:00"))
+    expected_bar = latest_expected_completed_bar(calendar, as_of)
 
     # Missing execution price is a NO-FILL (recorded directly), BEFORE risk: an
     # order with no price is not executable and must not be misreported as a
@@ -285,7 +322,7 @@ def _execute_orders(
                 message=f"no execution price on {day.date()}")
             o.status = "NO_FILL"
 
-    pre_equity = cash + sum(q * val_prices.get(s, 0.0) for s, q in positions.items())
+    pre_equity = cash + sum(q * exec_prices.get(s, 0.0) for s, q in positions.items())
     ctx = RiskContext(
         risk_config=risk_config,
         instruments=instruments,
@@ -295,8 +332,8 @@ def _execute_orders(
         cash=cash,
         equity=pre_equity,
         positions=dict(positions),
-        valuation_price=val_prices,
-        execution_price=val_prices,   # projected marking at execution-day price
+        valuation_price=exec_prices,   # projected marking at execution price
+        execution_price=exec_prices,
         price_date=price_dates,
         cost=cost,
         lot_size={s: int(instruments.get(s, {}).get("lot_size", 100)) for s in
@@ -332,35 +369,28 @@ def _execute_orders(
                 message=f"no execution price on {day.date()}")
             o.status = "NO_FILL"
             continue
-        # fill
+        # fill via the shared economics function (same as the risk dry-run)
+        from pql.execution.economics import compute_fill_economics
+
         qty = abs(o.adjust_quantity)
-        if o.side == "BUY":
-            fill = price * (1 + cost.slippage)
-            gross = qty * fill
-            fee = gross * cost.fee_rate
-            cash_delta = -(gross + fee)
-            positions[o.symbol] = positions.get(o.symbol, 0.0) + qty
-        else:  # SELL
-            fill = price * (1 - cost.slippage)
-            gross = qty * fill
-            fee = gross * cost.fee_rate
-            stamp = gross * cost.stamp_duty
-            cash_delta = +(gross - fee - stamp)
-            positions[o.symbol] = positions.get(o.symbol, 0.0) - qty
-        o.fill_price = fill
-        o.gross_notional = gross
-        o.fee = fee
-        o.slippage_cost = gross * cost.slippage
-        o.cash_delta = cash_delta
+        ec = compute_fill_economics(o.side, qty, price, cost)
+        positions[o.symbol] = positions.get(o.symbol, 0.0) + (
+            qty if o.side == "BUY" else -qty)
+        o.fill_price = ec["fill_price"]
+        o.gross_notional = ec["gross_notional"]
+        o.fee = ec["fee"]
+        o.slippage_cost = ec["slippage_cost"]
+        o.cash_delta = ec["cash_delta"]
         o.status = "EXECUTED"
-        cash += cash_delta
+        cash += ec["cash_delta"]
         n_sim += 1
         account.append_order(o)
         account.append_event({
             "kind": "fill", "date": str(pd.Timestamp(day).date()),
             "order_id": o.order_id, "symbol": o.symbol, "side": o.side,
-            "fill_price": fill, "gross_notional": gross, "fee": fee,
-            "slippage_cost": o.slippage_cost, "cash_delta": cash_delta,
+            "fill_price": ec["fill_price"], "gross_notional": ec["gross_notional"],
+            "fee": ec["fee"], "slippage_cost": ec["slippage_cost"],
+            "cash_delta": ec["cash_delta"],
         })
     return positions, cash, n_sim, decision
 
@@ -435,7 +465,14 @@ def paper_replay(
     positions: dict[str, float] = dict(account.current_positions())
     cash = account.current_cash() if account.has_state() else init_cash
 
-    pending: dict[pd.Timestamp, list[Order]] = {}
+    # Execution Revaluation (D10 / M7.29): a decision at T stores the TARGET
+    # INTENT, not early-frozen quantities. Quantities are sized at the
+    # revaluation bar R = T + execution_bar - 1 (using R's close and the account
+    # state as of R), then filled at the execution bar E = T + execution_bar.
+    #   execution_bar=1 -> R = T  (size at T close, fill at T+1)
+    #   execution_bar=2 -> R = T+1 (size at T+1 close, fill at T+2)
+    pending_reeval: dict[pd.Timestamp, list[dict[str, Any]]] = {}
+    pending_exec: dict[pd.Timestamp, list[Order]] = {}
     decision_days: list[pd.Timestamp] = []
     n_sim = 0
     n_holds = 0
@@ -443,36 +480,65 @@ def paper_replay(
 
     for day in replay_days:
         # 1) execute orders scheduled for this day (fill at day's raw price)
-        todays = pending.pop(day.normalize(), [])
+        todays = pending_exec.pop(day.normalize(), [])
         if todays:
             positions, cash, n_exec, _dec = _execute_orders(
                 account=account, orders=todays, day=day, cost=cost,
                 instruments=instruments, risk_config=risk_config,
                 calendar=calendar, positions=positions, cash=cash,
                 exec_price=exec_map.get(day.normalize(), {}),
-                val_close=close_map.get(day.normalize(), {}))
+                exec_col=exec_col)
             n_sim += n_exec
-        # 2) decision at day close -> schedule execution at T+execution_bar
+        # 2) revalue decisions whose revaluation bar is today (after today's
+        #    fills, so the size reflects the account state at R's close)
+        for dec in pending_reeval.pop(day.normalize(), []):
+            val_prices = close_map.get(day.normalize(), {})
+            orders = generate_orders(
+                decision_date=str(pd.Timestamp(dec["decision_date"]).date()),
+                execution_date=str(pd.Timestamp(dec["execution_date"]).date()),
+                current_positions=positions,
+                cash=cash,
+                target=dec["target"],
+                valuation_prices=val_prices,
+                execution_prices={},
+                instruments=instruments,
+                reason_prefix=f"rebalance {pd.Timestamp(dec['decision_date']).date()} "
+                              f"(revalue {day.date()})",
+            )
+            n_holds += sum(1 for o in orders if o.side == "HOLD")
+            pending_exec[pd.Timestamp(dec["execution_date"]).normalize()] = orders
+        # 3) decision at day close -> schedule revaluation at T+exec_bar-1 and
+        #    execution at T+exec_bar
         tp = target_for_series_row(target_series, day, spec,
                                    reason=f"rebalance at {day.date()}")
         if tp is not None:
             decision_days.append(day)
             exec_day = _next_trading_day(calendar, day, timing.execution_bar)
             if exec_day is not None and exec_day <= pd.Timestamp(end).normalize():
-                val_prices = close_map.get(day.normalize(), {})
-                orders = generate_orders(
-                    decision_date=str(day.date()),
-                    execution_date=str(exec_day.date()),
-                    current_positions=positions,
-                    cash=cash,
-                    target=tp,
-                    valuation_prices=val_prices,
-                    execution_prices={},
-                    instruments=instruments,
-                    reason_prefix=f"rebalance {day.date()}",
-                )
-                n_holds += sum(1 for o in orders if o.side == "HOLD")
-                pending[exec_day.normalize()] = orders
+                if timing.execution_bar == 1:
+                    # revaluation bar == decision bar: size NOW at T close
+                    val_prices = close_map.get(day.normalize(), {})
+                    orders = generate_orders(
+                        decision_date=str(day.date()),
+                        execution_date=str(exec_day.date()),
+                        current_positions=positions,
+                        cash=cash,
+                        target=tp,
+                        valuation_prices=val_prices,
+                        execution_prices={},
+                        instruments=instruments,
+                        reason_prefix=f"rebalance {day.date()}",
+                    )
+                    n_holds += sum(1 for o in orders if o.side == "HOLD")
+                    pending_exec[exec_day.normalize()] = orders
+                else:
+                    reeval_day = _next_trading_day(calendar, day, timing.execution_bar - 1)
+                    if reeval_day is not None:
+                        pending_reeval.setdefault(reeval_day.normalize(), []).append({
+                            "decision_date": day,
+                            "execution_date": exec_day,
+                            "target": tp,
+                        })
                 account.append_event({
                     "kind": "decision", "date": str(day.date()),
                     "execution_date": str(exec_day.date()),
@@ -502,6 +568,7 @@ def paper_replay(
         "dataset_version": spec.dataset_version,
         "replay_start": start,
         "replay_end": end,
+        "last_persisted": str(history[-1]["date"].date()) if history else None,
         "trading_days": len(replay_days),
         "rebalance_cycles": len(decision_days),
         "sim_orders": n_sim,

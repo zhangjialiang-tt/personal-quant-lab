@@ -205,7 +205,8 @@ def _paper_report(report_root: Path, strategy: str) -> dict | None:
         return None
 
 
-def _check_paper(repo, registry_path, experiments_root, report_root, strategy, spec, freeze) -> None:
+def _check_paper(repo, registry_path, experiments_root, report_root, strategy, spec, freeze,
+                 paper_dir: Path | None = None) -> None:
     if freeze is None:
         raise GateError("VALIDATED->PAPER requires a valid candidate freeze")
     actual = compute_freeze_payload(repo, experiments_root, spec)
@@ -226,6 +227,20 @@ def _check_paper(repo, registry_path, experiments_root, report_root, strategy, s
         raise GateError("VALIDATED->PAPER paper_report candidate_hash != freeze candidate_hash")
     if prov.get("market_rule_version") != spec.market_rule_version:
         raise GateError("VALIDATED->PAPER paper_report market_rule_version mismatch")
+    # the report must not be stale relative to the CURRENT PaperAccount state
+    # (review P1-2): recompute the fingerprint from the live account and compare.
+    if paper_dir is not None:
+        from pql.execution.paper import PaperAccount
+        from pql.execution.report import paper_state_fingerprint
+
+        account = PaperAccount(strategy, paper_dir)
+        current = paper_state_fingerprint(account)
+        recorded = report.get("paper_state_fingerprint", "")
+        if not recorded or current != recorded:
+            raise GateError(
+                "VALIDATED->PAPER paper_report is stale: PaperAccount state does not "
+                "match the report's paper_state_fingerprint; regenerate the report"
+            )
 
 
 def promote(
@@ -272,11 +287,13 @@ def promote(
         _check_validated(repo, registry_path, experiments_root, report_root, strategy, spec)
     elif target == State.PAPER:
         freeze = _freeze_block(registry_path, strategy)
-        _check_paper(repo, registry_path, experiments_root, report_root, strategy, spec, freeze)
+        _check_paper(repo, registry_path, experiments_root, report_root, strategy, spec,
+                     freeze, paper_dir=Path(data_root) / "paper")
     elif target == State.LIVE:
         require_human_approver(approver)
         freeze = _freeze_block(registry_path, strategy)
-        _check_paper(repo, registry_path, experiments_root, report_root, strategy, spec, freeze)
+        _check_paper(repo, registry_path, experiments_root, report_root, strategy, spec,
+                     freeze, paper_dir=Path(data_root) / "paper")
     elif target in (State.RETIRED,) or target == State.SUSPENDED:
         require_human_approver(approver)
     else:

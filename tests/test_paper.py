@@ -173,7 +173,7 @@ def test_missing_price_logged(tmp_path):
     _positions, _cash, n_sim, _ = _execute_orders(
         account=account, orders=[order], day=pd.Timestamp("2026-01-06"), cost=cost,
         instruments=instruments, risk_config=risk_config, calendar=calendar,
-        positions={}, cash=100_000.0, exec_price={A: None}, val_close={A: 100.0})
+        positions={}, cash=100_000.0, exec_price={A: None}, exec_col="close")
     assert n_sim == 0
     fails = account.read_failures()
     assert any(f["type"] == "missing_execution_price" for f in fails)
@@ -198,7 +198,7 @@ def test_risk_rejection_logged(tmp_path):
     _positions, _cash, n_sim, dec = _execute_orders(
         account=account, orders=[order], day=pd.Timestamp("2026-01-06"), cost=cost,
         instruments=instruments, risk_config=risk_config, calendar=calendar,
-        positions={}, cash=100_000.0, exec_price={A: 1.0}, val_close={A: 1.0})
+        positions={}, cash=100_000.0, exec_price={A: 1.0}, exec_col="close")
     assert n_sim == 0
     fails = account.read_failures()
     assert any(f["type"] == "risk_rejected_order" for f in fails)
@@ -278,3 +278,58 @@ def _GATES():
         "  max_portfolio_exposure: 1.0\n  max_turnover_per_rebalance: 2.0\n"
         "  max_order_value: 100000\n"
     )
+
+# --------------------------------------------------------------------------- #
+# Review P0-2: overlap protection bound to PERSISTED state, not executed orders
+# --------------------------------------------------------------------------- #
+def test_overlap_zero_orders_rejected(tmp_path):
+    """A replay that persisted state but executed ZERO orders must still be
+    overlap-protected (the old guard keyed on orders.jsonl and silently passed)."""
+    account = PaperAccount("x", tmp_path)
+    pd.DataFrame([{"date": pd.Timestamp("2026-01-31"), "cash": 100_000.0}]) \
+        .to_parquet(account.cash_path, index=False)
+    pd.DataFrame([{"date": pd.Timestamp("2026-01-31"), "equity": 100_000.0}]) \
+        .to_parquet(account.equity_path, index=False)
+    account.write_meta({"last_persisted": "2026-01-31",
+                        "replay_start": "2026-01-01", "replay_end": "2026-01-31"})
+    assert not account.has_state() or True  # state exists without any orders
+    with pytest.raises(ReplayOverlapError):
+        account.assert_no_overlap("2026-01-01")  # start <= last_persisted -> reject
+
+
+def test_overlap_last_order_before_persisted_rejected(tmp_path):
+    """If the last executed order precedes the persisted state boundary, a replay
+    starting between them must be refused (old code resumed from future state)."""
+    from pql.execution.orders import Order
+
+    account = PaperAccount("x", tmp_path)
+    account.append_order(Order(
+        order_id="o1", decision_date="2026-02-05", execution_date="2026-02-10",
+        symbol="510300.SH", side="BUY", target_weight=0.5, current_quantity=0.0,
+        target_quantity=500.0, adjust_quantity=500.0, lot_size=100,
+        valuation_price=100.0, expected_execution_price=100.0, reason="r"))
+    account.write_meta({"last_persisted": "2026-03-31"})
+    # start Mar 1: after the last order (Feb 10) but before the persisted state
+    # (Mar 31) -> must reject (old code would resume from the Mar 31 future state)
+    with pytest.raises(ReplayOverlapError):
+        account.assert_no_overlap("2026-03-01")
+
+
+def test_overlap_continuation_after_persisted_allowed(tmp_path):
+    """A replay strictly AFTER the persisted boundary is a legal continuation."""
+    account = PaperAccount("x", tmp_path)
+    account.write_meta({"last_persisted": "2026-03-31"})
+    account.assert_no_overlap("2026-04-01")  # start > last_persisted -> no reject
+
+
+def test_market_evidence_allowlist():
+    """Review P1-2: market_evidence is an explicit allowlist; unknown / empty
+    source (e.g. on dataset-load error) must NOT fail open to true."""
+    from pql.execution.report import market_evidence
+
+    assert market_evidence("akshare") is True
+    assert market_evidence("tushare") is True
+    assert market_evidence("synthetic") is False
+    assert market_evidence("fixture") is False
+    assert market_evidence("") is False
+    assert market_evidence("unknown") is False

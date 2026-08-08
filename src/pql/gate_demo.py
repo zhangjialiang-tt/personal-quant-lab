@@ -296,8 +296,8 @@ def _state(registry_path) -> str:
     return "UNREGISTERED"
 
 
-def gate_demo_main() -> int:
-    results = run_gate_demo(print_steps=True)
+def gate_demo_main(sandbox: str | Path | None = None, to_live: bool = False) -> int:
+    results = run_gate_demo(sandbox=sandbox, print_steps=True, demo_to_live=to_live)
     print(f"\nDEMO_RESULT={results.get('DEMO_RESULT', 'FAIL')}")
     print(f"sandbox={results['sandbox']}")
     print(f"final state={results.get('VALIDATED->PAPER', {}).get('state_after', '?')}")

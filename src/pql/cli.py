@@ -468,7 +468,7 @@ def _cmd_gate_promote(args) -> int:
 def _cmd_gate_demo(args) -> int:
     from pql.gate_demo import gate_demo_main
 
-    return gate_demo_main()
+    return gate_demo_main(sandbox=args.sandbox, to_live=args.to_live)
 
 
 def _cmd_paper_replay(args) -> int:

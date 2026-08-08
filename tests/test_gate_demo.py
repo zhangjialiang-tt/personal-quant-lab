@@ -80,3 +80,38 @@ def test_fixture_lifecycle_history_complete(tmp_path):
     # every transition has a corresponding audit.log record
     audit = (tmp_path / "reports" / "audit.log").read_text(encoding="utf-8").splitlines()
     assert len(audit) >= len(entry["history"])
+
+def test_gate_demo_cli_args_wired(tmp_path, monkeypatch):
+    """Review P2-1: `pql gate demo` must forward --sandbox and --to-live to the
+    runner (they were silently ignored before)."""
+    from pql import cli
+
+    captured = {}
+
+    def _fake_main(sandbox=None, to_live=False):
+        captured["sandbox"] = sandbox
+        captured["to_live"] = to_live
+        return 0
+
+    monkeypatch.setattr("pql.gate_demo.gate_demo_main", _fake_main)
+    sb = str(tmp_path / "sbloc")
+    rc = cli.main(["gate", "demo", "--sandbox", sb, "--to-live"])
+    assert rc == 0
+    assert captured["sandbox"] == sb
+    assert captured["to_live"] is True
+
+
+def test_gate_demo_cli_defaults(tmp_path, monkeypatch):
+    from pql import cli
+
+    captured = {}
+
+    def _fake_main(sandbox=None, to_live=False):
+        captured["sandbox"] = sandbox
+        captured["to_live"] = to_live
+        return 0
+
+    monkeypatch.setattr("pql.gate_demo.gate_demo_main", _fake_main)
+    cli.main(["gate", "demo"])
+    assert captured["sandbox"] is None
+    assert captured["to_live"] is False

@@ -152,12 +152,14 @@ def _projected(ctx: RiskContext, orders: list[RiskOrder]) -> tuple[dict[str, flo
 
       - SELL orders first (release cash), then BUY orders (consume cash);
       - within each side, canonical symbol ascending order;
-      - BUY fill at raw*(1+slippage), fee=gross*fee_rate, cash -= gross+fee;
-      - SELL fill at raw*(1-slippage), fee=gross*fee_rate, stamp=gross*stamp_duty,
-        cash += gross-fee-stamp.
+      - every fill uses the SAME `compute_fill_economics` as the paper engine
+        (dry-run here, mutation there), so a risk PASS can never predict a
+        different cash residual than the actual fill (review P1-1).
 
     Returns (projected_positions, projected_cash). Does NOT mutate the context.
     """
+    from pql.execution.economics import compute_fill_economics
+
     sells = sorted(
         (o for o in orders if o.side == "SELL"),
         key=lambda o: (_canonical(o.symbol), o.order_id),
@@ -170,20 +172,13 @@ def _projected(ctx: RiskContext, orders: list[RiskOrder]) -> tuple[dict[str, flo
     cash = ctx.cash
     for o in sells:
         sym = _canonical(o.symbol)
-        raw = o.execution_price
-        gross = abs(o.quantity) * raw
-        fill = gross * (1 - ctx.cost.slippage)
-        fee = gross * ctx.cost.fee_rate
-        stamp = gross * ctx.cost.stamp_duty
-        cash += fill - fee - stamp
+        ec = compute_fill_economics("SELL", o.quantity, o.execution_price, ctx.cost)
+        cash += ec["cash_delta"]
         pos[sym] = pos.get(sym, 0.0) - abs(o.quantity)
     for o in buys:
         sym = _canonical(o.symbol)
-        raw = o.execution_price
-        gross = abs(o.quantity) * raw
-        fill = gross * (1 + ctx.cost.slippage)
-        fee = gross * ctx.cost.fee_rate
-        cash -= fill + fee
+        ec = compute_fill_economics("BUY", o.quantity, o.execution_price, ctx.cost)
+        cash += ec["cash_delta"]
         pos[sym] = pos.get(sym, 0.0) + abs(o.quantity)
     return pos, cash
 

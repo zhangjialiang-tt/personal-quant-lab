@@ -26,17 +26,23 @@ class ReconcileError(RuntimeError):
 
 def _recompute_cash_delta(order: dict, cost: CostModel, lot_size: int) -> float:
     """Independently re-derive the cash_delta a fill SHOULD have produced from
-    its recorded fill_price / quantity / fee. A mismatch with the recorded
-    cash_delta means the ledger was tampered."""
+    its recorded fill price / quantity, using the SAME frozen economics as the
+    paper engine and the risk dry-run. A mismatch with the recorded cash_delta
+    means the ledger was tampered."""
+    from pql.execution.economics import compute_fill_economics
+
     side = order.get("side")
     qty = abs(float(order.get("adjust_quantity", 0.0)))
     fill = float(order.get("fill_price", 0.0)) if order.get("fill_price") is not None else 0.0
-    gross = qty * fill  # fill_price already includes slippage
-    fee = float(order.get("fee", 0.0)) if order.get("fee") is not None else gross * cost.fee_rate
+    # invert fill_price = raw*(1 +/- slippage) to recover the raw price
     if side == "BUY":
-        return -(gross + fee)
-    stamp = gross * cost.stamp_duty
-    return +(gross - fee - stamp)
+        raw = fill / (1 + cost.slippage)
+    elif side == "SELL":
+        raw = fill / (1 - cost.slippage)
+    else:
+        return 0.0
+    ec = compute_fill_economics(side, qty, raw, cost)
+    return ec["cash_delta"]
 
 
 def reconcile(
