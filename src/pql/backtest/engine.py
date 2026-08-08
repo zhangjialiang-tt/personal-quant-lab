@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
 import vectorbt as vbt
 
@@ -40,6 +41,56 @@ class TargetWeightIntent:
 TradingIntent = SignalIntent | TargetWeightIntent
 
 
+@dataclass(frozen=True)
+class ExecutionPerturbation:
+    """M6 miss-stress perturbation (path-dependent, full engine rerun — NOT
+    post-hoc order surgery).
+
+    The caller passes EITHER an explicit `reject_mask` (bool grid on
+    date x symbol: True = the order is rejected) OR `miss_rate` + `seed` (the
+    engine builds the deterministic mask aligned to the actual order-event
+    grid). Rejected cells are dropped from the execution input BEFORE vectorbt
+    runs, so the whole portfolio path (cash, subsequent buys/sells) evolves
+    naturally — a missed SELL changes cash and can break a later BUY, which a
+    post-hoc deletion could never reproduce.
+    """
+
+    reject_mask: pd.DataFrame | None = None
+    miss_rate: float = 0.0
+    seed: int = 0
+
+    def validate(self) -> None:
+        if self.reject_mask is not None and (self.miss_rate or self.seed):
+            raise ValueError("provide either reject_mask or miss_rate/seed, not both")
+        if self.reject_mask is None and (self.miss_rate < 0 or self.miss_rate > 1):
+            raise ValueError(f"miss_rate must be in [0, 1], got {self.miss_rate}")
+
+
+def generate_reject_mask(
+    event_cells: pd.DataFrame, miss_rate: float, seed: int
+) -> pd.DataFrame:
+    """Deterministic reject mask over the order-event grid.
+
+    Selects ceil(miss_rate * n_events) event cells via a seeded RNG. Same seed
+    -> same mask; different seed -> different mask (frozen M6 contract). Cells
+    that are not order events are never rejected. Returns True where the order
+    is REJECTED.
+    """
+    rng = np.random.default_rng(seed)
+    mask = pd.DataFrame(False, index=event_cells.index, columns=event_cells.columns)
+    locs = np.argwhere(event_cells.to_numpy())
+    n = len(locs)
+    if n == 0:
+        return mask
+    k = int(np.ceil(miss_rate * n))
+    if k > 0:
+        chosen = rng.choice(n, size=min(k, n), replace=False)
+        for i in chosen:
+            r, c = locs[i]
+            mask.iat[r, c] = True
+    return mask
+
+
 def _price_frame(dataset: DatasetView, column: str) -> pd.DataFrame:
     frame = dataset.execution_frame()  # [date, symbol, open, close]
     if column not in ("open", "close"):
@@ -55,6 +106,35 @@ def _to_equity_series(value) -> pd.Series:
     return value
 
 
+def _closed_trades(trades, cols: list[str], dates: pd.Index) -> list[dict]:
+    """Normalize vectorbt closed-trade records into PQL `ClosedTrade` facts
+    (K02 drop_best_trades needs entry/exit dates, symbol, size, net PnL, fees).
+    vectorbt `pnl` is net of entry/exit fees; `fees` is the total trade fee."""
+    out: list[dict] = []
+    if trades is None or len(trades) == 0:
+        return out
+    for t in trades.itertuples():
+        entry_idx = int(t.entry_idx)
+        exit_idx = int(t.exit_idx)
+        col = int(t.col)
+        symbol = cols[col] if col < len(cols) else str(col)
+        entry_date = str(dates[entry_idx].date()) if entry_idx < len(dates) else None
+        exit_date = str(dates[exit_idx].date()) if exit_idx < len(dates) else None
+        fees = float(getattr(t, "entry_fees", 0.0)) + float(getattr(t, "exit_fees", 0.0))
+        out.append(
+            {
+                "symbol": symbol,
+                "entry_date": entry_date,
+                "exit_date": exit_date,
+                "size": float(t.size),
+                "net_pnl": float(t.pnl),
+                "fees": fees,
+                "status": int(t.status),
+            }
+        )
+    return out
+
+
 def run_backtest_impl(
     intent,
     universe: list[str],
@@ -62,8 +142,11 @@ def run_backtest_impl(
     cost_model: CostModel,
     portfolio_config: PortfolioConfig,
     dataset: DatasetView,
+    perturbation: ExecutionPerturbation | None = None,
 ) -> BacktestResult:
     assert_no_lookahead(execution_model)
+    if perturbation is not None:
+        perturbation.validate()
 
     # VALUATION price is always the raw close; EXECUTION price is open or close.
     raw_close = _price_frame(dataset, "close")
@@ -125,10 +208,23 @@ def run_backtest_impl(
             held_changed = (entries | exits).any(axis=1)
             weights = weights.where(held_changed, other=float("nan"), axis=0)
             weights = weights.where(has_price)
+            weights_exec = weights.shift(n)
+            if perturbation is not None:
+                reject = (
+                    perturbation.reject_mask
+                    if perturbation.reject_mask is not None
+                    else generate_reject_mask(
+                        weights_exec.notna(), perturbation.miss_rate, perturbation.seed
+                    )
+                )
+                reject = reject.reindex(
+                    index=weights_exec.index, columns=weights_exec.columns, fill_value=False
+                )
+                weights_exec = weights_exec.where(~reject)
             pf = vbt.Portfolio.from_orders(
                 close=raw_close,
                 price=order_price,
-                size=weights.shift(n),
+                size=weights_exec,
                 size_type="targetpercent",
                 cash_sharing=True,
                 call_seq="auto",
@@ -143,11 +239,26 @@ def run_backtest_impl(
             intent_kind = "signal"
             valuation_mode = "equal_weight_signal"
         else:
+            entries_exec = entries.shift(n, fill_value=False)
+            exits_exec = exits.shift(n, fill_value=False)
+            if perturbation is not None:
+                reject = (
+                    perturbation.reject_mask
+                    if perturbation.reject_mask is not None
+                    else generate_reject_mask(
+                        (entries_exec | exits_exec), perturbation.miss_rate, perturbation.seed
+                    )
+                )
+                reject = reject.reindex(
+                    index=entries_exec.index, columns=entries_exec.columns, fill_value=False
+                )
+                entries_exec = entries_exec & ~reject
+                exits_exec = exits_exec & ~reject
             pf = vbt.Portfolio.from_signals(
                 close=raw_close,
                 price=order_price,
-                entries=entries.shift(n, fill_value=False),
-                exits=exits.shift(n, fill_value=False),
+                entries=entries_exec,
+                exits=exits_exec,
                 init_cash=portfolio_config.init_cash,
                 fees=cost_model.fee_rate,
                 slippage=cost_model.slippage,
@@ -173,10 +284,23 @@ def run_backtest_impl(
         # Execution Revaluation (frozen): target quantity sized at the close of
         # the bar BEFORE the execution bar; first bar falls back to its own close.
         val_price = raw_close.shift(1).fillna(raw_close)
+        weights_exec = weights.shift(n)
+        if perturbation is not None:
+            reject = (
+                perturbation.reject_mask
+                if perturbation.reject_mask is not None
+                else generate_reject_mask(
+                    weights_exec.notna(), perturbation.miss_rate, perturbation.seed
+                )
+            )
+            reject = reject.reindex(
+                index=weights_exec.index, columns=weights_exec.columns, fill_value=False
+            )
+            weights_exec = weights_exec.where(~reject)
         pf = vbt.Portfolio.from_orders(
             close=raw_close,
             price=order_price,
-            size=weights.shift(n),
+            size=weights_exec,
             size_type="targetpercent",
             cash_sharing=True,
             call_seq="auto",
@@ -214,5 +338,15 @@ def run_backtest_impl(
         "slippage": cost_model.slippage,
         "init_cash": portfolio_config.init_cash,
         "skipped_no_price": skipped,
+        "closed_trades": _closed_trades(trades, cols, order_price.index),
+        "perturbation": (
+            {
+                "miss_rate": perturbation.miss_rate,
+                "seed": perturbation.seed,
+                "reject_mask": perturbation.reject_mask is not None,
+            }
+            if perturbation is not None
+            else None
+        ),
     }
     return BacktestResult(equity=equity, orders=orders, metrics=metrics, run_meta=run_meta)

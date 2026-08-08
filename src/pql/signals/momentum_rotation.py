@@ -46,6 +46,7 @@ def momentum_rotation_signal(
     ma_filter: int = 0,
     top_k: int = 2,
     max_positions: int | None = None,
+    rebalance_days: list | None = None,
 ) -> TargetWeightIntent:
     """Build a monthly Top-K equal-weight TargetWeightIntent from a research
     frame ([date, symbol, close_adj]). Point-in-time: every decision at T uses
@@ -56,7 +57,11 @@ def momentum_rotation_signal(
     day of each calendar month is the scheduled rebalance day, exactly as frozen.
     A scheduled day with no price data simply cannot execute (the weight row for
     that date is dropped by the engine) — it is never silently redefined as the
-    next available price day."""
+    next available price day.
+
+    `rebalance_days` (optional) overrides the schedule (K06 shift_rebalance
+    passes a schedule shifted by one actual trading day; the decision at each
+    shifted day regenerates targets using only data <= that day)."""
     if momentum_days < 1:
         raise MomentumError(f"momentum_days must be >= 1, got {momentum_days}")
     if ma_filter < 0:
@@ -77,7 +82,10 @@ def momentum_rotation_signal(
 
     effective_k = min(top_k, max_positions) if max_positions else top_k
     # schedule from the CALENDAR; only dates with prices can actually rebalance
-    rebal = [d for d in first_trading_day_of_month(calendar_dates) if d in pivot.index]
+    if rebalance_days is None:
+        rebal = [d for d in first_trading_day_of_month(calendar_dates) if d in pivot.index]
+    else:
+        rebal = [pd.Timestamp(d) for d in rebalance_days if pd.Timestamp(d) in pivot.index]
 
     weights = pd.DataFrame(np.nan, index=pivot.index, columns=pivot.columns)
     for d in rebal:

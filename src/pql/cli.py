@@ -82,8 +82,25 @@ def build_parser() -> argparse.ArgumentParser:
     vrun.add_argument("--run", default=None, help="run id RUN-XXXXX (required if >1 run)")
     vcand = vsub.add_parser("candidate", help="candidate development validation (M5)")
     vcand.add_argument("--strategy", required=True)
+    vfinal = vsub.add_parser("final", help="final holdout validation (M6, consumes holdout once)")
+    vfinal.add_argument("--strategy", required=True)
 
-    for name in [g for g in _GROUPS if g not in ("data", "experiment", "registry", "validate")]:
+    gate = sub.add_parser("gate", help="lifecycle promotion (M6: --to CANDIDATE)")
+    gsub = gate.add_subparsers(dest="command", metavar="<command>")
+    gpromote = gsub.add_parser("promote", help="promote a strategy lifecycle state")
+    gpromote.add_argument("--strategy", required=True)
+    gpromote.add_argument("--to", required=True, dest="to_state",
+                          help="target state (M6 implements CANDIDATE only)")
+    gpromote.add_argument("--approver", required=True, help="human approver id")
+    gpromote.add_argument("--reason", required=True)
+
+    review = sub.add_parser("review", help="AI review bundles (M6.9)")
+    rsub = review.add_subparsers(dest="command", metavar="<command>")
+    rbundle = rsub.add_parser("bundle", help="assemble a reviewer/challenger bundle")
+    rbundle.add_argument("--exp", required=True, help="experiment id EXP-NNNN")
+    rbundle.add_argument("--role", required=True, choices=["reviewer", "challenger"])
+
+    for name in [g for g in _GROUPS if g not in ("data", "experiment", "registry", "validate", "gate", "review")]:
         sub.add_parser(name, help=f"{name} commands").add_subparsers(dest="command")
     return parser
 
@@ -384,12 +401,72 @@ def _cmd_validate_candidate(args) -> int:
     print(f"  gate_version: {report['gate_version']}")
     for k, v in report["gate_results"].items():
         print(f"  gate {k}: {'PASS' if v else 'FAIL'}")
-    for k, v in report["m6_pending"].items():
-        print(f"  {k}: {v}")
+    print(f"  code_clean: {report['code_clean']}")
+    print(f"  ready_for_candidate_freeze: {report['ready_for_candidate_freeze']}")
     print(f"  holdout_untouched: {report['holdout_untouched']}")
     print(f"  effective_trial_count: {report['effective_trial_count']}")
     print(f"  report: {report.get('report_path')}")
     return 1 if report["overall"] == "FAIL" else 0
+
+
+def _cmd_validate_final(args) -> int:
+    from .validation.final import FinalValidationError, validate_final
+
+    try:
+        report = validate_final(".", args.strategy, data_root="data")
+    except FinalValidationError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"final validation: {args.strategy}")
+    print(f"  overall: {report['overall']}")
+    print(f"  candidate_hash: {report['candidate_hash']}")
+    print(f"  holdout: {report['holdout_start']} -> {report['holdout_end']}")
+    print(f"  holdout_sharpe: {report['holdout_metrics'].get('sharpe')}")
+    print(f"  holdout_gate: {report['holdout_gate']}")
+    print(f"  market_evidence: {report['market_evidence']}")
+    print(f"  final_run_ref: {report['final_run_ref']}")
+    print(f"  report: {report.get('report_path')}")
+    return 0 if report["overall"] == "PASS" else 1
+
+
+def _cmd_gate_promote(args) -> int:
+    from .validation.freeze import FreezeError, promote_to_candidate
+
+    if args.to_state != "CANDIDATE":
+        print(
+            f"error: --to {args.to_state} is not implemented until M7; "
+            "M6 implements only --to CANDIDATE",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        result = promote_to_candidate(
+            ".", args.strategy, approver=args.approver, reason=args.reason,
+            registry_path="strategy_registry.yaml", report_root="reports",
+            experiments_root="experiments", data_root="data",
+        )
+    except FreezeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"{args.strategy} promoted to CANDIDATE (freeze written)")
+    print(f"  candidate_hash: {result['candidate_freeze']['candidate_hash']}")
+    print(f"  spec_sha256: {result['candidate_freeze']['spec_sha256']}")
+    print(f"  code_commit: {result['candidate_freeze']['code_commit']}")
+    print(f"  params: {result['candidate_freeze']['parameters']}")
+    return 0
+
+
+def _cmd_review_bundle(args) -> int:
+    from .review.bundle import BundleError, build_bundle
+
+    try:
+        path = build_bundle(".", args.exp, args.role, experiments_root="experiments",
+                            data_root="data", report_root="reports", out_root="reports")
+    except BundleError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"{args.role} bundle -> {path}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -414,6 +491,12 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_validate_run(args)
     if args.group == "validate" and getattr(args, "command", None) == "candidate":
         return _cmd_validate_candidate(args)
+    if args.group == "validate" and getattr(args, "command", None) == "final":
+        return _cmd_validate_final(args)
+    if args.group == "gate" and getattr(args, "command", None) == "promote":
+        return _cmd_gate_promote(args)
+    if args.group == "review" and getattr(args, "command", None) == "bundle":
+        return _cmd_review_bundle(args)
     parser.parse_args([args.group, "--help"])
     return 0
 

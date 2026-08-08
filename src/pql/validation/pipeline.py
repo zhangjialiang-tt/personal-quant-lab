@@ -25,6 +25,7 @@ from typing import Any
 
 import yaml
 
+from pql.backtest.costs import apply_stress
 from pql.data.dataset import DatasetView
 from pql.registry.experiments import (
     next_experiment_id,
@@ -80,8 +81,10 @@ def _write_eval(
     exp_id: str, strategy: str, params: dict, run_kind: str,
     spec, cost, ds: DatasetView, gate, config_sha256: str, gate_version: str,
     metrics: dict, equity, orders, exp_root: str | Path,
+    cost_model=None,
 ):
     """Write a window backtest result as a Run in the ledger."""
+    cost_model = cost_model or cost
     return write_run(
         experiments_root=exp_root,
         experiment_id=exp_id,
@@ -94,8 +97,8 @@ def _write_eval(
         dataset_checksums=ds.manifest().get("files", {}),
         market_rule_version=spec.market_rule_version,
         cost_model_version=spec.cost_model_version,
-        cost_config={"version": cost.version, "fee_rate": cost.fee_rate,
-                     "slippage": cost.slippage},
+        cost_config={"version": cost_model.version, "fee_rate": cost_model.fee_rate,
+                     "slippage": cost_model.slippage},
         gate_version=gate_version,
         gate=gate,
         config_sha256=config_sha256,
@@ -196,7 +199,54 @@ def validate_candidate(
                     "DIAGNOSTIC", spec, cost, ds, gate, cfg["config_sha256"],
                     gate_version, combo, None, None, exp_root)
 
-    # -- gate evaluation -------------------------------------------------------
+    # -- M6: cost stress (STRESS runs, full rerun, real costs) ---------------
+    from .stress import cost_stress, execution_stress, worst_exec_max_drawdown
+
+    cost_variants = cost_stress(spec, cost, ds, data_root)
+    for v in cost_variants:
+        _write_eval(exp_id, strategy, default_params, "STRESS", spec, cost, ds,
+                    gate, cfg["config_sha256"], gate_version, v["metrics"],
+                    v["equity"], v["orders"], exp_root)
+    _cost_2x = next(v for v in cost_variants if v["parameters"].get("multiplier") == 2)
+    cost_2x_sharpe = _num(_cost_2x["sharpe"])
+
+    # -- M6: execution stress (STRESS runs, frozen E01-E05) ------------------
+    exec_variants = execution_stress(spec, cost, ds, data_root)
+    for v in exec_variants:
+        _write_eval(exp_id, strategy, {**default_params, "_exec": v["variant_id"]},
+                    "STRESS", spec, cost, ds, gate, cfg["config_sha256"],
+                    gate_version, v["metrics"], v["equity"], v["orders"], exp_root)
+    worst_mdd = worst_exec_max_drawdown(exec_variants)
+
+    # -- M6: circular block bootstrap (IS returns, never holdout) ------------
+    from .bootstrap import bootstrap, bootstrap_sharpe_p05
+
+    boot_out = Path(report_root) / "validation" / strategy / "bootstrap"
+    bs = bootstrap(spec, is_res.equity, out_dir=boot_out if persist else None)
+    bs_p05 = bootstrap_sharpe_p05(bs)
+
+    # -- M6: Deflated Sharpe Ratio (N = effective_trial_count) ---------------
+    from .overfitting import deflated_sharpe_report
+
+    dsr = deflated_sharpe_report(spec, is_res.equity, exp_root, strategy)
+
+    # -- M6: kill test families (DIAGNOSTIC runs) ----------------------------
+    from .kill import kill_tests, killed_family_count
+
+    families = kill_tests(spec, cost, ds, data_root)
+    for fid, fam in families.items():
+        for v in fam["variants"]:
+            if v.get("equity") is None:
+                continue
+            cost_model = apply_stress(cost, 2) if fid == "K05" else cost
+            _write_eval(exp_id, strategy,
+                        {**default_params, "_kill": fid, "_variant": v["variant_id"]},
+                        "DIAGNOSTIC", spec, cost, ds, gate, cfg["config_sha256"],
+                        gate_version, v["metrics"], v["equity"], v["orders"],
+                        exp_root, cost_model=cost_model)
+    n_killed_families = killed_family_count(families)
+
+    # -- gate evaluation (M5 + M6, all from validation_gates.yaml) -----------
     is_sharpe = _num(is_metrics.get("sharpe"))
     is_maxdd = _num(is_metrics.get("max_drawdown"))
     gate_results = {
@@ -207,10 +257,18 @@ def validate_candidate(
         "time_windows_min_pos_cagr_frac": (
             tr["positive_cagr_fraction"] >= _num(gates.get("time_windows_min_pos_cagr_frac"))
         ),
+        "cost_2x_min_sharpe": cost_2x_sharpe is not None and cost_2x_sharpe >= _num(gates.get("cost_2x_min_sharpe")),
+        "exec_stress_max_drawdown_floor": worst_mdd is not None and worst_mdd >= _num(gates.get("exec_stress_max_drawdown_floor")),
+        "bootstrap_sharpe_p05_min": bs_p05 >= _num(gates.get("bootstrap_sharpe_p05_min")),
+        "deflated_sharpe_min": dsr["dsr_probability"] is not None and not (
+            isinstance(dsr["dsr_probability"], float) and math.isnan(dsr["dsr_probability"])
+        ) and float(dsr["dsr_probability"]) >= _num(gates.get("deflated_sharpe_min")),
+        "max_kill_families_killed": n_killed_families <= _num(gates.get("max_kill_families_killed")),
+        "require_code_clean": not bool(gate.code_dirty),
     }
-    m6_sections = {k: "PENDING_M6" for k in M6_KEYS}
-    m5_fail = any(v is False for v in gate_results.values())
-    overall = "FAIL" if m5_fail else "INCOMPLETE_PENDING_M6"
+    code_clean = not bool(gate.code_dirty)
+    overall = "FAIL" if any(v is False for v in gate_results.values()) else "PASS"
+    ready_for_candidate_freeze = overall == "PASS"
 
     holdout_after = _holdout_snapshot(data_root)
     report = {
@@ -219,6 +277,7 @@ def validate_candidate(
         "dataset_version": spec.dataset_version,
         "dataset_source": ds.manifest().get("source", ""),
         "market_evidence": ds.manifest().get("source", "") != "synthetic",
+        "candidate_params": default_params,
         "gate_version": gate_version,
         "gate_content_sha256": cfg["per_file"].get(str(paths["gates"]), ""),
         "code_commit": gate.commit,
@@ -226,6 +285,14 @@ def validate_candidate(
         "config_hashes": cfg["per_file"],
         "selected_params": default_params,
         "effective_trial_count": _effective_trial_count(exp_root, strategy),
+        "provenance": {
+            "dataset_version": spec.dataset_version,
+            "dataset_source": ds.manifest().get("source", ""),
+            "code_commit": gate.commit,
+            "code_dirty": gate.code_dirty,
+            "gate_version": gate_version,
+            "config_sha256": cfg["config_sha256"],
+        },
         "holdout_access_before": holdout_before,
         "holdout_access_after": holdout_after,
         "holdout_untouched": holdout_before == holdout_after,
@@ -235,9 +302,52 @@ def validate_candidate(
         "parameter_robustness": {k: v for k, v in pr.items() if k != "rows"},
         "time_robustness": tr,
         "regime": rg,
-        "m6_pending": m6_sections,
+        "cost_stress": {
+            "variants": [
+                {"multiplier": v["parameters"].get("multiplier"), "sharpe": v["sharpe"],
+                 "max_drawdown": v["max_drawdown"], "cagr": v["cagr"],
+                 "fee_rate": v.get("fee_rate"), "slippage": v.get("slippage")}
+                for v in cost_variants
+            ],
+            "cost_2x_sharpe": cost_2x_sharpe,
+        },
+        "execution_stress": {
+            "variants": [
+                {"variant_id": v["variant_id"], "variant_name": v["variant_name"],
+                 "parameters": v["parameters"], "sharpe": v["sharpe"],
+                 "max_drawdown": v["max_drawdown"], "cagr": v["cagr"],
+                 "valuation_mode": v.get("valuation_mode")}
+                for v in exec_variants
+            ],
+            "worst_exec_max_drawdown": worst_mdd,
+            "gate_input_variant": "worst across required E01-E05 variants (M6-002)",
+        },
+        "bootstrap": bs["summary"],
+        "deflated_sharpe": dsr,
+        "kill_tests": {
+            "families": [
+                {
+                    "family_id": f["family_id"],
+                    "family_name": f["family_name"],
+                    "family_result": f["family_result"],
+                    "killed_fraction": f["killed_fraction"],
+                    "gate_relevant_variant_count": f["gate_relevant_variant_count"],
+                    "killed_variant_count": f["killed_variant_count"],
+                    "variants": [
+                        {"variant_id": v["variant_id"], "variant_name": v["variant_name"],
+                         "parameters": v["parameters"], "result": v["result"],
+                         "gate_relevant": v["gate_relevant"], "metrics": v["metrics"]}
+                        for v in f["variants"]
+                    ],
+                }
+                for f in families.values()
+            ],
+            "killed_family_count": n_killed_families,
+        },
+        "code_clean": {"code_dirty": bool(gate.code_dirty), "pass": code_clean},
         "gate_results": gate_results,
         "overall": overall,
+        "ready_for_candidate_freeze": ready_for_candidate_freeze,
         "created": _now(),
     }
     if persist:

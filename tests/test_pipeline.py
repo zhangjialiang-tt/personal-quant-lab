@@ -24,19 +24,45 @@ def _fake_result(metrics=None):
     )
 
 
-def test_happy_path_incomplete_pending_m6(tmp_path):
+def test_happy_path_overall_pass(tmp_path):
     from tests.m5_fixture import make_momentum_repo
     root, data_root = make_momentum_repo(tmp_path)
     report = validate_candidate(root, "test_momentum_v1", data_root=data_root,
                                 report_root=root / "reports",
                                 experiments_root=root / "experiments", persist=False)
-    assert report["overall"] == "INCOMPLETE_PENDING_M6"
+    assert report["overall"] == "PASS"
+    assert report["ready_for_candidate_freeze"] is True
     assert all(v is True for v in report["gate_results"].values())
-    assert report["m6_pending"] == {k: "PENDING_M6" for k in
-                                    ("cost_stress", "exec_stress", "bootstrap",
-                                     "deflated_sharpe", "kill_tests")}
+    for k in ("cost_stress", "execution_stress", "bootstrap", "deflated_sharpe", "kill_tests"):
+        assert k in report
+    assert "m6_pending" not in report
+    assert report["code_clean"]["pass"] is True
     assert report["strategy_state"] == "RESEARCH"
     assert report["holdout_untouched"] is True
+
+
+def test_m6_bootstrap_below_gate_fails_pipeline(tmp_path):
+    """A bootstrap Sharpe p05 below the gate must fail the whole candidate
+    (overall FAIL, freeze refused) even when every M5 gate passes."""
+    from pql.validation import bootstrap as _boot_mod
+    from tests.m5_fixture import make_momentum_repo
+    root, data_root = make_momentum_repo(tmp_path)
+
+    def _bad_bootstrap(*a, **k):
+        return {"summary": {"sharpe": {"p05": -0.9, "p50": 0.1, "p95": 0.5}}}
+
+    # monkeypatch the pipeline's bootstrap entry point to force a failing p05
+    _orig = _boot_mod.bootstrap
+    _boot_mod.bootstrap = _bad_bootstrap
+    try:
+        report = validate_candidate(root, "test_momentum_v1", data_root=data_root,
+                                    report_root=root / "reports",
+                                    experiments_root=root / "experiments", persist=False)
+    finally:
+        _boot_mod.bootstrap = _orig
+    assert report["overall"] == "FAIL"
+    assert report["ready_for_candidate_freeze"] is False
+    assert report["gate_results"]["bootstrap_sharpe_p05_min"] is False
 
 
 def test_fail_when_is_sharpe_below_gate(monkeypatch, tmp_path):

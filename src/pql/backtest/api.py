@@ -10,13 +10,22 @@ from pql.timing import TimingContract
 
 from ..data.dataset import DatasetView
 from .costs import assert_production_costs
-from .engine import SignalIntent, TargetWeightIntent, TradingIntent, run_backtest_impl
+from .engine import (
+    ExecutionPerturbation,
+    SignalIntent,
+    TargetWeightIntent,
+    TradingIntent,
+    generate_reject_mask,
+    run_backtest_impl,
+)
 
 __all__ = [
     "BacktestResult",
+    "ExecutionPerturbation",
     "SignalIntent",
     "TargetWeightIntent",
     "TradingIntent",
+    "generate_reject_mask",
     "run_backtest",
 ]
 
@@ -28,6 +37,7 @@ def run_backtest(
     cost_model: CostModel,
     portfolio_config: PortfolioConfig,
     dataset: DatasetView,
+    perturbation: ExecutionPerturbation | None = None,
 ) -> BacktestResult:
     """Run a backtest through the vectorbt engine; production cost must be > 0."""
     assert_production_costs(cost_model)
@@ -38,5 +48,6 @@ def run_backtest(
         cost_model=cost_model,
         portfolio_config=portfolio_config,
         dataset=dataset,
+        perturbation=perturbation,
     )
 

@@ -41,6 +41,19 @@ class HoldoutGuard:
         self.registry_path = Path(registry_path)
         self.data_root = Path(data_root)
 
+    def frozen_freeze(self, strategy_id: str) -> dict:
+        """Return the strategy's candidate_freeze block WITHOUT consuming the
+        holdout (used by final validation to verify freeze fingerprint BEFORE
+        fail-closed consumption). Raises HoldoutError if not frozen."""
+        registry = _load_registry(self.registry_path)
+        entry = next((e for e in registry.get("strategies", []) if e.get("id") == strategy_id), None)
+        if entry is None:
+            raise HoldoutError(f"strategy not registered: {strategy_id}")
+        freeze = entry.get("candidate_freeze")
+        if not freeze or not isinstance(freeze, dict):
+            raise HoldoutError(f"candidate not frozen for {strategy_id}; access denied")
+        return dict(freeze)
+
     def holdout_slice(
         self,
         strategy_id: str,
@@ -49,8 +62,15 @@ class HoldoutGuard:
         end: str,
         caller: str = "",
         purpose: str = "final_holdout",
+        as_view: bool = False,
     ):
         """Consume the Final Holdout once and return the dataset window.
+
+        `as_view=False` (default, backward compatible with M2) returns the
+        adjusted research DataFrame; `as_view=True` returns the DatasetView
+        restricted to the holdout window (adjusted research prices via
+        research_frame() AND raw execution open/close via execution_frame()),
+        so the Final Backtest never bypasses the Guard to load holdout data.
 
         Order (fail-closed): (1) reject unless UNUSED and candidate frozen;
         (2) persist consumed=true + fsync; (3) append audit log; (4) only then
@@ -71,7 +91,12 @@ class HoldoutGuard:
         if status.get("consumed"):
             raise HoldoutError(f"holdout already consumed for {strategy_id}")
 
-        candidate_hash = str(freeze.get("spec_sha256") or freeze.get("code_commit") or "")
+        candidate_hash = str(
+            freeze.get("candidate_hash")
+            or freeze.get("spec_sha256")
+            or freeze.get("code_commit")
+            or ""
+        )
         # --- fail-closed: persist consumed BEFORE releasing data --------------
         entry["holdout_status"] = {
             "consumed": True,
@@ -93,6 +118,7 @@ class HoldoutGuard:
                         "dataset_version": version,
                         "start": start,
                         "end": end,
+                        "candidate_hash": candidate_hash,
                     },
                     ensure_ascii=False,
                 )
@@ -103,4 +129,6 @@ class HoldoutGuard:
 
         # --- release data last -------------------------------------------------
         view = DatasetView.load(version, self.data_root, start=start, end=end)
+        if as_view:
+            return view
         return view.research_frame()
