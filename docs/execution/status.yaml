@@ -1,7 +1,7 @@
 plan_version: v0.1
 plan_sha256: "..."
 
-active_milestone: M1
+active_milestone: M2
 
 milestones:
     M1:
@@ -9,6 +9,8 @@ milestones:
         commit: aa5e93d
         review: PENDING
     M2:
-        state: NOT_STARTED
+        state: IMPLEMENTED
+        commit: 6a8dd87
+        review: PENDING
     M3:
         state: NOT_STARTED
