@@ -1,0 +1,21 @@
+# D6 strategy spec: Buy & Hold Control (system self-check, not an alpha strategy)
+name: buy_hold_control
+hypothesis: "系统自检：验证收益/费用/净值/执行时序计算正确，非 Alpha 策略。"
+universe: ["510300.SH"]
+benchmark: "510300.SH"
+signal: { kind: buy_hold }
+rebalance: none
+risk: { max_positions: 1 }
+dataset_version: market-20260808-v1
+market_rule_version: cn-etf-2026-v1
+cost_model_version: cn-etf-cost-2026-v1
+timing: { execution_bar: 1, execution_price: close }
+windows:
+    in_sample: ["2020-01-02", "2024-12-31"]
+    holdout: ["2025-01-01", "2026-08-07"]
+param_grid: {}
+research_budget:
+    max_total_selection_runs: 1
+    max_variants_per_param: {}
+    holdout_access: { allowed: false }
+seed: 42
