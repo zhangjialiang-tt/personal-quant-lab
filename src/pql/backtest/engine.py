@@ -153,7 +153,6 @@ def run_backtest_impl(
         trades=trades,
         asset_value=asset_value,
         dates=order_price.index,
-        init_cash=portfolio_config.init_cash,
     )
     run_meta = {
         "engine": "vectorbt",

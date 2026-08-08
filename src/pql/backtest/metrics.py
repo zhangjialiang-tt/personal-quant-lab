@@ -107,7 +107,6 @@ def compute_metrics(
     trades: pd.DataFrame | None = None,
     asset_value: pd.Series | None = None,
     dates: pd.Index | None = None,
-    init_cash: float | None = None,
 ) -> dict[str, float]:
     """Full D8 metric set. Equity metrics always; order-derived metrics from the
     executed vectorbt portfolio facts when provided."""
