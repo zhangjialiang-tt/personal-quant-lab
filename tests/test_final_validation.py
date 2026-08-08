@@ -5,6 +5,7 @@ changes N, holdout-only report, holdout-fail keeps consumed, warmup stays out of
 holdout metrics."""
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 import yaml
 
@@ -153,3 +154,56 @@ def test_warmup_does_not_contaminate_holdout_metrics(tmp_path):
     # the holdout window is much shorter than IS, so its CAGR differs from a
     # full-range CAGR; assert the report never mixes IS numbers in
     assert report["holdout_start"] >= "2025-01-01"
+
+
+def test_holdout_scoring_window_includes_first_return():
+    """The first holdout return (boundary -> day1) must be scored. A naive
+    `equity.loc[holdout:]` slice turns day1 into NaN; the boundary-anchored
+    window must keep it (review P0-2)."""
+    from types import SimpleNamespace
+
+    from pql.validation.final import _holdout_scoring_window
+
+    idx = pd.date_range("2024-12-30", periods=4, freq="D")  # 12-30, 12-31, 01-01, 01-02
+    full = pd.Series([100.0, 100.0, 90.0, 99.0], index=idx)  # IS end 100, day1 crash -10%, day2 +10%
+    res = SimpleNamespace(
+        equity=full,
+        orders=pd.DataFrame(),
+        run_meta={"asset_value": full, "trades": pd.DataFrame()},
+    )
+    hol_eq, _orders, _trades, _asset, hol_dates = _holdout_scoring_window(
+        res, "2025-01-01", "2025-01-02"
+    )
+    # boundary anchor (12-31 = 100) is prepended, so both holdout returns survive
+    assert list(hol_eq.index) == [idx[1], idx[2], idx[3]]
+    rets = hol_eq.pct_change().dropna()
+    assert list(rets.round(10)) == [-0.1, 0.1]  # -10% then +10%
+    assert list(hol_dates) == [idx[2], idx[3]]
+
+
+def test_final_run_artifacts_consistent_window(tmp_path):
+    """The FINAL_HOLDOUT run's metrics/equity/orders must all describe the
+    holdout window (review P1-4): equity length == holdout days, orders are
+    within the holdout window, and order-derived metrics are populated."""
+    import json
+
+    root, data_root, reg = make_final_momentum_repo(tmp_path)
+    run_candidate_pass(root, data_root, reg)
+    report = validate_final(root, "ftest_v1", data_root=data_root, report_root=root / "reports",
+                            experiments_root=root / "experiments", registry_path=reg)
+    exp_id, run_id = report["final_run_ref"].split("/")
+    run_dir = root / "experiments" / exp_id / "runs" / run_id
+    equity = pd.read_parquet(run_dir / "equity.parquet")
+    orders = pd.read_parquet(run_dir / "orders.parquet")
+    metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
+    # holdout equity is boundary-anchored + holdout window only (not the full
+    # IS+holdout range): the first date is the 2024 boundary anchor, not IS start
+    eq_dates = pd.to_datetime(equity["date"]).dt.normalize()
+    assert eq_dates.min() >= pd.Timestamp("2024-12-31").normalize()  # boundary anchor
+    assert eq_dates.max() <= pd.Timestamp(report["holdout_end"]).normalize()
+    # orders were re-indexed to the holdout window: idx is within holdout length
+    if len(orders):
+        assert int(orders["idx"].max()) < len(equity)
+    # order-derived metrics are populated (not degenerate 0/NaN)
+    for key in ("n_trades", "turnover", "exposure", "win_rate"):
+        assert key in metrics

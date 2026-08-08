@@ -41,7 +41,7 @@ from pql.registry.provenance import (
 from pql.registry.runner import resolve_paths
 from pql.schemas import load_cost_model, load_spec
 from pql.signals.registry import effective_params
-from pql.validation.freeze import code_tree_sha256
+from pql.validation.freeze import code_tree_sha256, validation_fingerprint
 
 from .base import grid_configs, run_window
 from .regimes import regime_analysis
@@ -285,6 +285,7 @@ def validate_candidate(
         "code_dirty": gate.code_dirty,
         "code_tree_sha256": code_tree_sha256(repo),
         "config_hashes": cfg["per_file"],
+        "validation_fingerprint": validation_fingerprint(repo, spec),
         "selected_params": default_params,
         "effective_trial_count": _effective_trial_count(exp_root, strategy),
         "provenance": {

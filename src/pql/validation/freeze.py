@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pql.lifecycle import LifecycleError, find_strategy, transition
+from pql.lifecycle import find_strategy
 from pql.registry.provenance import config_hashes, git_state
 from pql.registry.runner import resolve_paths
 from pql.schemas import load_spec
@@ -79,14 +79,17 @@ def code_tree_sha256(repo_root: str | Path) -> str:
     return _sha256_bytes(_canonical_json(files).encode("utf-8"))
 
 
-def compute_freeze_payload(
-    repo_root: str | Path, experiments_root: str | Path, spec
-) -> dict[str, Any]:
-    """Compute the full freeze fingerprint + candidate_hash for a spec."""
+def _binding_payload(repo_root: str | Path, spec) -> dict[str, Any]:
+    """The STABLE freeze binding payload (everything that must not change between
+    candidate validation and freeze, and must not change after freeze). Evidence
+    outputs are excluded. The SAME payload is recorded in the candidate report
+    as `validation_fingerprint`, so a freeze can never silently bind an
+    environment the candidate was never validated against (review P1-3)."""
     repo = Path(repo_root)
     paths = resolve_paths(repo, spec)
     cfg = config_hashes(
-        paths["spec"], paths["gates"], paths["cost"], paths["market"], paths["instruments"]
+        paths["spec"], paths["gates"], paths["cost"], paths["market"],
+        paths["instruments"],
     )
     per_file = cfg["per_file"]
     spec_sha = per_file.get(str(paths["spec"]), "")
@@ -100,18 +103,12 @@ def compute_freeze_payload(
         if "instruments" in p
     }
     inst_sha = _sha256_bytes(_canonical_json(inst_map).encode("utf-8"))
-
-    code = git_state(experiments_root)
     uv_lock = repo / "uv.lock"
     uv_lock_sha = _file_sha256(uv_lock) if uv_lock.exists() else ""
 
-    payload = {
+    return {
         "spec_sha256": spec_sha,
         "code_tree_sha256": code_tree_sha256(repo),
-        # code_commit is informational provenance (the HEAD at freeze time);
-        # it is NOT part of the stability binding, because evidence-only commits
-        # bump HEAD without changing the code tree.
-        "code_commit": code.commit,
         "parameters": dict(effective_params(spec, None)),
         "gate_version": _gate_version(repo),
         "gate_config_sha256": gate_sha,
@@ -121,44 +118,62 @@ def compute_freeze_payload(
         "uv_lock_sha256": uv_lock_sha,
         "dataset_version": spec.dataset_version,
     }
-    # candidate_hash binds the STABLE code tree (code_tree_sha256), not the
-    # whole-HEAD code_commit, so committing evidence afterwards does not
-    # invalidate the freeze.
-    _bind_keys = {k: v for k, v in payload.items() if k != "code_commit"}
-    candidate_hash = _sha256_bytes(_canonical_json(_bind_keys).encode("utf-8"))
+
+
+def validation_fingerprint(repo_root: str | Path, spec) -> dict[str, Any]:
+    """The stable binding payload the candidate report records at validation
+    time and the freeze re-verifies at promotion. Because both sides use the
+    identical payload, the freeze can never bind an environment the candidate
+    was never validated against."""
+    return _binding_payload(Path(repo_root), spec)
+
+
+def compute_freeze_payload(
+    repo_root: str | Path, experiments_root: str | Path, spec
+) -> dict[str, Any]:
+    """Compute the full freeze fingerprint + candidate_hash for a spec."""
+    repo = Path(repo_root)
+    binding = _binding_payload(repo, spec)
+    code = git_state(experiments_root)
+    payload = dict(binding)
+    # code_commit is informational provenance (the HEAD at freeze time); it is
+    # NOT part of the stability binding, because evidence-only commits bump HEAD
+    # without changing the code tree.
+    payload["code_commit"] = code.commit
+    # candidate_hash binds the STABLE binding payload (which includes the code
+    # tree), not the whole-HEAD code_commit, so committing evidence afterwards
+    # does not invalidate the freeze.
+    candidate_hash = _sha256_bytes(_canonical_json(binding).encode("utf-8"))
     payload["candidate_hash"] = candidate_hash
     payload["created"] = _now()
     return payload
 
 
+_BIND_KEYS = (
+    "spec_sha256", "code_tree_sha256", "parameters", "gate_version",
+    "gate_config_sha256", "cost_config_sha256", "market_rule_sha256",
+    "instrument_sha256", "uv_lock_sha256", "dataset_version",
+)
+
+
 def verify_report_provenance(report: dict, payload: dict) -> None:
-    """The candidate report's recorded code/config fingerprints must match the
-    CURRENT state (a stale report is refused). Compares the stable code-tree
-    fingerprint and config hashes — NOT whole-HEAD code_commit, so an
-    evidence-only commit does not make a valid report appear stale."""
-    if report.get("code_tree_sha256") != payload.get("code_tree_sha256"):
+    """The candidate report's `validation_fingerprint` (recorded at validation
+    time from the SAME binding payload the freeze uses) must match the current
+    environment. Because both sides use the identical binding payload, every
+    field (spec, code tree, params, gate, cost, market, instrument, uv.lock,
+    dataset) is covered — no per-field checklist to forget (review P1-3)."""
+    vf = report.get("validation_fingerprint")
+    if not isinstance(vf, dict):
         raise FreezeError(
-            "candidate report code_tree_sha256 does not match current code; "
-            "regenerate the candidate report before freezing"
+            "candidate report missing validation_fingerprint; "
+            "regenerate the report before freezing"
         )
-    cfg = report.get("config_hashes") or {}
-    spec_path = next((p for p in cfg if "strategies" in p), None)
-    if spec_path and cfg.get(spec_path) != payload.get("spec_sha256"):
-        raise FreezeError("candidate report spec hash does not match current spec")
-    for label, key in (
-        ("gate", "gate_config_sha256"),
-        ("cost", "cost_config_sha256"),
-        ("market", "market_rule_sha256"),
-    ):
-        match = [
-            p for p in cfg if label in p.lower()
-        ]
-        if match:
-            current = cfg.get(match[0])
-            if current != payload.get(key):
-                raise FreezeError(
-                    f"candidate report {label} config hash does not match current files"
-                )
+    for k in _BIND_KEYS:
+        if vf.get(k) != payload.get(k):
+            raise FreezeError(
+                f"candidate report validation_fingerprint.{k} does not match the "
+                "current environment; regenerate the report before freezing"
+            )
 
 
 def promote_to_candidate(
@@ -202,36 +217,49 @@ def promote_to_candidate(
         raise FreezeError(f"candidate overall is {report.get('overall')!r}; not PASS")
     if not report.get("ready_for_candidate_freeze"):
         raise FreezeError("ready_for_candidate_freeze is false; freeze refused")
-    if report.get("code_dirty"):
-        raise FreezeError("code is dirty; candidate freeze refused")
 
     spec = load_spec(repo / "strategies" / f"{strategy}.yaml")
     payload = compute_freeze_payload(repo, experiments_root, spec)
     verify_report_provenance(report, payload)
 
-    # perform the lifecycle transition (RESEARCH -> CANDIDATE)
-    try:
-        transition(
-            registry_path, strategy, "CANDIDATE",
-            reason=reason, evidence=str(report_path), approver=approver,
-        )
-    except LifecycleError as exc:
-        raise FreezeError(str(exc)) from exc
+    # Re-check the CURRENT clean state (not the stale report flag): a worktree
+    # that became dirty after validation must refuse the freeze (D9
+    # require_code_clean). Evidence-only reports//experiments/ are outside the
+    # dirty scope, so this does not reintroduce evidence self-invalidation.
+    current_code = git_state(experiments_root)
+    if current_code.code_dirty:
+        raise FreezeError("current code is dirty; candidate freeze refused")
 
-    # write the candidate_freeze block into the registry entry
-    import yaml
+    # Single atomic registry mutation: RESEARCH -> CANDIDATE + history +
+    # candidate_freeze in ONE write (review P2-5), so a crash cannot leave
+    # state=CANDIDATE without a candidate_freeze block.
+    from pql import lifecycle as _lc
 
     reg_path = Path(registry_path)
-    registry = yaml.safe_load(reg_path.read_text(encoding="utf-8")) or {"strategies": []}
-    freeze_payload = {k: v for k, v in payload.items()}
-    for item in registry.get("strategies", []):
-        if item.get("id") == strategy:
-            item["candidate_freeze"] = freeze_payload
-            break
-    reg_path.write_text(
-        yaml.safe_dump(registry, sort_keys=False, allow_unicode=True), encoding="utf-8"
-    )
-    return {"strategy": strategy, "candidate_freeze": freeze_payload}
+    registry = _lc._load_registry(reg_path)
+    entry = next((e for e in registry["strategies"] if e.get("id") == strategy), None)
+    if entry is None:
+        raise FreezeError(f"strategy not registered: {strategy}")
+    if entry.get("state") != "RESEARCH":
+        raise FreezeError(
+            f"candidate freeze requires state RESEARCH, got {entry.get('state')}"
+        )
+    if not _lc.is_legal_transition(_lc.State("RESEARCH"), _lc.State("CANDIDATE")):
+        raise FreezeError("illegal transition RESEARCH -> CANDIDATE")
+    hist_entry = {
+        "from": "RESEARCH",
+        "to": "CANDIDATE",
+        "time": _lc._now(),
+        "reason": reason,
+        "evidence": str(report_path),
+        "approver": approver,
+    }
+    entry["history"] = list(entry["history"]) + [hist_entry]
+    entry["state"] = "CANDIDATE"
+    entry["candidate_freeze"] = {k: v for k, v in payload.items()}
+    _lc._write_registry(reg_path, registry)
+    _lc._append_audit(reg_path, {"strategy_id": strategy, **hist_entry})
+    return {"strategy": strategy, "candidate_freeze": payload}
 
 
 def verify_freeze(freeze: dict, actual: dict) -> None:
@@ -257,7 +285,9 @@ def verify_freeze(freeze: dict, actual: dict) -> None:
 
 __all__ = [
     "FreezeError",
+    "code_tree_sha256",
     "compute_freeze_payload",
     "promote_to_candidate",
+    "validation_fingerprint",
     "verify_freeze",
 ]

@@ -44,13 +44,18 @@ def test_candidate_fail_freezing_rejected(tmp_path):
 
 def test_dirty_code_rejected(tmp_path):
     root, data_root, reg = make_final_momentum_repo(tmp_path)
-    run_candidate_pass(root, data_root, reg)
-    # dirty code: also make the report stale by regenerating with a different hash
-    report_path = root / "reports" / "validation" / "ftest_v1" / "candidate_report.json"
-    report = json.loads(report_path.read_text(encoding="utf-8"))
-    report["ready_for_candidate_freeze"] = False
-    report_path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
-    with pytest.raises(FreezeError):
+    from pql.validation.pipeline import validate_candidate
+
+    validate_candidate(root, "ftest_v1", data_root=data_root,
+                       report_root=root / "reports",
+                       experiments_root=root / "experiments", persist=True)
+    # dirty the worktree AFTER validation with a tests/ file (inside the dirty
+    # scope but OUTSIDE the code-tree binding), so only the current clean-state
+    # check can catch it (D9 require_code_clean, review P1-3).
+    dirty = root / "tests" / "_dirty_probe.py"
+    dirty.parent.mkdir(parents=True, exist_ok=True)
+    dirty.write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(FreezeError, match="dirty"):
         promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
                              registry_path=reg, report_root=root / "reports",
                              experiments_root=root / "experiments", data_root=data_root)
@@ -67,9 +72,9 @@ def test_stale_candidate_report_rejected(tmp_path):
     assert report["overall"] == "PASS"
     report_path = root / "reports" / "validation" / "ftest_v1" / "candidate_report.json"
     r = json.loads(report_path.read_text(encoding="utf-8"))
-    r["code_tree_sha256"] = "0" * 64  # stale code fingerprint
+    r["validation_fingerprint"] = {**r.get("validation_fingerprint", {}), "spec_sha256": "0" * 64}
     report_path.write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
-    with pytest.raises(FreezeError, match="code_tree_sha256"):
+    with pytest.raises(FreezeError, match="validation_fingerprint"):
         promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
                              registry_path=reg, report_root=root / "reports",
                              experiments_root=root / "experiments", data_root=data_root)
@@ -151,6 +156,34 @@ def test_freeze_after_evidence_commit_is_allowed(tmp_path):
                                     registry_path=reg, report_root=root / "reports",
                                     experiments_root=root / "experiments", data_root=data_root)
     assert promoted["candidate_freeze"]["code_tree_sha256"]
+
+
+def test_validate_then_modify_instrument_then_freeze_rejected(tmp_path):
+    """Modifying an instrument config (or uv.lock) between candidate validation
+    and freeze must be caught by the report->freeze provenance check (the
+    report's validation_fingerprint binds instrument + uv.lock)."""
+    root, data_root, reg = make_final_momentum_repo(tmp_path)
+    from pql.validation.pipeline import validate_candidate
+
+    validate_candidate(root, "ftest_v1", data_root=data_root,
+                       report_root=root / "reports",
+                       experiments_root=root / "experiments", persist=True)
+    # modify an instrument config AFTER validation
+    ip = root / "config" / "instruments" / "510300.yaml"
+    ip.write_text(ip.read_text(encoding="utf-8").replace("tick_size: 0.001", "tick_size: 0.01"), encoding="utf-8")
+    with pytest.raises(FreezeError, match="instrument_sha256"):
+        promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
+                             registry_path=reg, report_root=root / "reports",
+                             experiments_root=root / "experiments", data_root=data_root)
+    ip.write_text(ip.read_text(encoding="utf-8").replace("tick_size: 0.01", "tick_size: 0.001"), encoding="utf-8")
+
+    # and uv.lock
+    ul = root / "uv.lock"
+    ul.write_text("version = 2\n", encoding="utf-8")
+    with pytest.raises(FreezeError, match="uv_lock_sha256"):
+        promote_to_candidate(root, "ftest_v1", approver="zhangjl", reason="r",
+                             registry_path=reg, report_root=root / "reports",
+                             experiments_root=root / "experiments", data_root=data_root)
 
 
 def test_freeze_mismatch_on_file_change(tmp_path):

@@ -50,6 +50,72 @@ def _num(v):
     return v if isinstance(v, (int, float)) and not math.isnan(v) else None
 
 
+def _holdout_scoring_window(res, holdout_start: str, holdout_end: str):
+    """Derive a CONSISTENT holdout scoring window from the full backtest result
+    (which spans [IS_start, holdout_end]).
+
+    - hol_equity: boundary-anchored equity — [last pre-holdout NAV] + holdout
+      NAVs. Prepending the anchor means the FIRST holdout return (boundary ->
+      day 1) is scored (a naive slice loses it: pct_change turns day 1 into
+      NaN). CAGR is measured from the boundary anchor, so IS performance never
+      enters the holdout metrics (review P0-2).
+    - hol_orders: orders whose fill date is inside the holdout window, RE-INDEXED
+      to the local holdout index so D8 turnover computes correctly.
+    - hol_trades: closed trades whose exit date is inside the holdout window.
+    - hol_asset: asset-value aligned to the holdout dates (for exposure).
+    - hol_dates: the holdout trading dates.
+    """
+    full_equity = pd.Series(res.equity).sort_index()
+    full_dates = full_equity.index
+    hol_start = pd.Timestamp(holdout_start).normalize()
+    hol_end = pd.Timestamp(holdout_end).normalize()
+
+    pre = full_dates[full_dates < hol_start]
+    anchor_date = pre[-1] if len(pre) else full_dates[0]
+    anchor_nav = full_equity.loc[anchor_date]
+    hol_dates = full_dates[(full_dates >= hol_start) & (full_dates <= hol_end)]
+    hol_equity = pd.concat(
+        [pd.Series([anchor_nav], index=[anchor_date]), full_equity.loc[hol_dates]]
+    )
+
+    # orders -> holdout, re-indexed to the local holdout index
+    orders = res.orders
+    hol_orders = orders
+    if orders is not None and len(orders):
+        full_idx_to_date = {int(i): d for i, d in enumerate(full_dates)}
+        local_idx = {d: j for j, d in enumerate(hol_dates)}
+        keep = []
+        new_idx = []
+        for o in orders.itertuples():
+            d = full_idx_to_date.get(int(o.idx))
+            if d is not None and hol_start <= d <= hol_end:
+                keep.append(True)
+                new_idx.append(local_idx[d])
+            else:
+                keep.append(False)
+        hol_orders = orders[keep].copy()
+        hol_orders["idx"] = new_idx
+
+    # trades exiting in the holdout window
+    trades = res.run_meta.get("trades")
+    hol_trades = trades
+    if trades is not None and len(trades):
+        exit_keep = []
+        for t in trades.itertuples():
+            exit_idx = int(t.exit_idx)
+            d = full_dates[exit_idx] if exit_idx < len(full_dates) else hol_end
+            exit_keep.append(hol_start <= d <= hol_end)
+        hol_trades = trades[exit_keep]
+
+    # asset value aligned to holdout dates (exposure)
+    asset_value = res.run_meta.get("asset_value")
+    hol_asset = None
+    if asset_value is not None:
+        hol_asset = pd.Series(asset_value).sort_index().reindex(hol_dates)
+
+    return hol_equity, hol_orders, hol_trades, hol_asset, hol_dates
+
+
 class _CombinedView:
     """Read-only DatasetView-like wrapper spanning IS (freely accessible) plus
     the guard-RELEASED holdout window. The engine reads execution_frame() only;
@@ -162,11 +228,15 @@ def validate_final(
         intent=intent, universe=spec.universe, execution_model=timing,
         cost_model=cost, portfolio_config=portfolio, dataset=combined,
     )
-    equity = pd.Series(res.equity).sort_index()
-    hol_equity = equity.loc[pd.Timestamp(holdout_start):pd.Timestamp(holdout_end)]
     from pql.backtest.metrics import compute_metrics
 
-    hol_metrics = compute_metrics(hol_equity)
+    hol_equity, hol_orders, hol_trades, hol_asset, hol_dates = _holdout_scoring_window(
+        res, holdout_start, holdout_end
+    )
+    hol_metrics = compute_metrics(
+        hol_equity, orders=hol_orders, trades=hol_trades,
+        asset_value=hol_asset, dates=hol_dates,
+    )
 
     gate = _final_gate(repo, _num(hol_metrics.get("sharpe")))
     overall = "PASS" if gate["pass"] else "FAIL"
@@ -205,7 +275,7 @@ def validate_final(
         timing={"execution_bar": timing.execution_bar, "execution_price": timing.execution_price},
         metrics=dict(hol_metrics),
         equity=hol_equity,
-        orders=res.orders,
+        orders=hol_orders,
     )
 
     from datetime import datetime

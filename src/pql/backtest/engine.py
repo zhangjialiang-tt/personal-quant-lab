@@ -339,6 +339,8 @@ def run_backtest_impl(
         "init_cash": portfolio_config.init_cash,
         "skipped_no_price": skipped,
         "closed_trades": _closed_trades(trades, cols, order_price.index),
+        "asset_value": asset_value,
+        "trades": trades,
         "perturbation": (
             {
                 "miss_rate": perturbation.miss_rate,

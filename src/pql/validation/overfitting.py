@@ -14,9 +14,13 @@ Formulas (per-observation, non-annualized Sharpe):
     DSR = Z( (SR - E[max_SR]) / sqrt(V) )
 
 with gamma = Euler–Mascheroni constant 0.57721..., Z the standard normal CDF,
-gamma3 the sample skewness, gamma4 the sample EXCESS kurtosis, T the number of
-daily observations, and N the number of independent trials. For N <= 1 there is
-no multiple-testing bias, so E[max_SR] = 0 and DSR degenerates to PSR(0).
+gamma3 the sample skewness, gamma4 the sample PEARSON kurtosis (normal = 3,
+NOT excess kurtosis), T the number of daily observations, and N the number of
+independent trials. V(SR) is the sampling variance of the selected strategy's
+Sharpe estimator (Lo, 2002); the SAME V is used for both the PSR denominator
+and the expected-maximum deflation term — the standard Bailey–López de Prado
+DSR does NOT use a cross-sectional variance of trial Sharpes. For N <= 1 there
+is no multiple-testing bias, so E[max_SR] = 0 and DSR degenerates to PSR(0).
 
 Trial count is a HARD contract: N = effective_trial_count =
 COUNT(DISTINCT selection_key across the strategy lineage) where run_kind ==
@@ -81,7 +85,11 @@ def deflated_sharpe_ratio(
             "note": "insufficient data for DSR",
         }
     skew = float(stats.skew(r, bias=True))
-    kurt = float(stats.kurtosis(r, fisher=True, bias=True))  # EXCESS kurtosis
+    # gamma4 is the Pearson kurtosis (normal = 3), NOT excess kurtosis (normal
+    # = 0). The DSR formula's (gamma4 - 1)/4 term derives from the Lo (2002)
+    # variance (1 + gamma4/... ) with gamma4 = fourth standardized moment, so
+    # fisher=False. Using excess kurtosis here would be off by 3 (review P0-1B).
+    kurt = float(stats.kurtosis(r, fisher=False, bias=True))  # Pearson kurtosis
     V = (1.0 - skew * sr_daily + (kurt - 1.0) / 4.0 * sr_daily**2) / (T - 1)
     if V <= 0:
         V = 0.0
