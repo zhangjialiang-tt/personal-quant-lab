@@ -1,7 +1,7 @@
 plan_version: v0.1
-plan_sha256: "..."
+plan_sha256: "901b4b819845cd201de63e15cff62d86775ceba9fad3b401cf044f122d0bfc3c"
 
-active_milestone: M5
+active_milestone: M6
 
 milestones:
     M1:
@@ -21,6 +21,6 @@ milestones:
         commit: 7117daf
         review: ACCEPT
     M5:
-        state: IMPLEMENTED
-        commit: 55657a0
-        review: PENDING
+        state: ACCEPTED
+        commit: 20bf7a7ac46f0f56c509bf63b6d933de8960e567
+        review: ACCEPT
